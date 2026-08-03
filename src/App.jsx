@@ -24,20 +24,20 @@ import {
    ========================================================================= */
 
 // --- Real Supabase config (inactive — shown for reference / easy swap) ---
-// import { createClient } from '@supabase/supabase-js';
-// const supabase = createClient(
-//   import.meta.env.VITE_SUPABASE_URL,
-//   import.meta.env.VITE_SUPABASE_ANON_KEY
-// );
-//
-// export async function fetchWorkoutLogs() {
-//   const { data, error } = await supabase
-//     .from('workout_log')
-//     .select('id, work_id, title, set_id, weight_kg, rpe, reps, index, best_weight, best_volume, best_1rm, muscle_group, completed_at')
-//     .order('completed_at', { ascending: true });
-//   if (error) throw error;
-//   return data;
-// }
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+);
+
+export async function fetchWorkoutLogs() {
+  const { data, error } = await supabase
+    .from('workout_log')
+    .select('id, work_id, title, set_id, weight_kg, rpe, reps, index, best_weight, best_volume, best_1rm, muscle_group, completed_at')
+    .order('completed_at', { ascending: true });
+  if (error) throw error;
+  return data;
+}
 
 const EXERCISES = [
   { work_id: "ex1", title: "Barbell Bench Press", muscle_group: "Chest", base: 60, gain: 1.1, dayOffset: 0 },
@@ -123,7 +123,18 @@ function generateMockRows() {
 
 export async function fetchWorkoutLogs() {
   // Swap this function's body for the real Supabase block above when ready.
-  return generateMockRows();
+  // return generateMockRows();
+  const { data, error } = await supabase
+    .from('workout_logs') // Replace with your actual table name in Supabase
+    .select('*')
+    // .order('created_at', { ascending: false }); // Optional: order by date/timestamp
+
+  if (error) {
+    console.error('Error fetching workout logs:', error.message);
+    throw new Error(error.message);
+  }
+
+  return data;
 }
 
 const MOCK_ROWS = generateMockRows();
