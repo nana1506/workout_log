@@ -20,7 +20,7 @@ export async function fetchWorkoutLogs() {
   const { data, error } = await supabase
     .from('workout_log')
     .select('*')
-    .order('completed_at', { ascending: true });
+    .order('completed_at', { ascending: false });
 
   if (error) {
     console.error("Supabase Query Error:", error);
@@ -50,12 +50,20 @@ function linregSlope(points) {
 }
 
 const MUSCLE_COLORS = {
-  Chest: "#F4B740",
-  Legs: "#4FD1C5",
-  Back: "#EF7B57",
-  Shoulders: "#7FA6FF",
-  Arms: "#A78BFA",
-  Core: "#F472B6",
+  abdominals: "#EC4899",
+  abductors: "#A855F7",
+  adductors: "#8B5CF6",
+  biceps: "#3B82F6",
+  calves: "#06B6D4",
+  chest: "#F4B740",
+  full_body: "#10B981",
+  hamstrings: "#14B8A6",
+  lats: "#EF7B57",
+  quadriceps: "#4FD1C5",
+  shoulders: "#7FA6FF",
+  traps: "#F97316",
+  triceps: "#6366F1",
+  upper_back: "#E11D48",
 };
 
 const PERIODS = [
