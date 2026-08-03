@@ -121,21 +121,21 @@ function generateMockRows() {
   return rows.sort((a, b) => new Date(a.completed_at) - new Date(b.completed_at));
 }
 
-export async function fetchWorkoutLogs() {
-  // Swap this function's body for the real Supabase block above when ready.
-  // return generateMockRows();
-  const { data, error } = await supabase
-    .from('workout_logs') // Replace with your actual table name in Supabase
-    .select('*')
-    // .order('created_at', { ascending: false }); // Optional: order by date/timestamp
+// export async function fetchWorkoutLogs() {
+//   // Swap this function's body for the real Supabase block above when ready.
+//   // return generateMockRows();
+//   const { data, error } = await supabase
+//     .from('workout_logs') // Replace with your actual table name in Supabase
+//     .select('*')
+//     // .order('created_at', { ascending: false }); // Optional: order by date/timestamp
 
-  if (error) {
-    console.error('Error fetching workout logs:', error.message);
-    throw new Error(error.message);
-  }
+//   if (error) {
+//     console.error('Error fetching workout logs:', error.message);
+//     throw new Error(error.message);
+//   }
 
-  return data;
-}
+//   return data;
+// }
 
 const MOCK_ROWS = generateMockRows();
 
