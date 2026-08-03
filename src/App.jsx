@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   LineChart, Line, BarChart, Bar, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -9,22 +9,8 @@ import {
   ChevronDown, Trophy, Database, X, Activity, Rocket, Gauge, Timer,
 } from "lucide-react";
 
-/* =========================================================================
-   DATA LAYER
-   -------------------------------------------------------------------------
-   This mirrors the shape of a real Supabase call against `workout_log`.
-   Today it returns generated mock rows so the dashboard works standalone.
-   To go live, delete MOCK ROWS + generateMockRows(), and replace
-   fetchWorkoutLogs() with the commented block below (swap-ready).
-
-   Note: each mock row also carries `_weekIndex`, a client-side grouping
-   helper used for the load metrics (ACWR, deload detection) below. It is
-   NOT a column in your table — when using real data, derive the same
-   thing from `completed_at` (e.g. ISO week number) on the client.
-   ========================================================================= */
-
-// --- Real Supabase config (inactive — shown for reference / easy swap) ---
 import { createClient } from '@supabase/supabase-js';
+
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
   import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -35,8 +21,19 @@ export async function fetchWorkoutLogs() {
     .from('workout_log')
     .select('id, work_id, title, set_id, weight_kg, rpe, reps, index, best_weight, best_volume, best_1rm, muscle_group, completed_at')
     .order('completed_at', { ascending: true });
+
   if (error) throw error;
-  return data;
+
+  // Derive client-side _weekIndex from completed_at date relative to ANCHOR_DATE
+  return (data || []).map((row) => {
+    const rowDate = new Date(row.completed_at);
+    const diffDays = Math.floor((rowDate - ANCHOR_DATE) / (1000 * 60 * 60 * 24));
+    const weekIdx = Math.floor(diffDays / 7) + WEEKS - 1;
+    return {
+      ...row,
+      _weekIndex: row._weekIndex ?? Math.max(0, Math.min(WEEKS - 1, weekIdx)),
+    };
+  });
 }
 
 const EXERCISES = [
@@ -54,9 +51,11 @@ const ANCHOR_DATE = new Date("2026-08-03T00:00:00");
 function round25(n) {
   return Math.round(n / 2.5) * 2.5;
 }
+
 function estOneRM(weight, reps) {
   return Math.round(weight * (1 + reps / 30) * 10) / 10;
 }
+
 function linregSlope(points) {
   const n = points.length;
   if (n < 2) return 0;
@@ -68,76 +67,6 @@ function linregSlope(points) {
   if (denom === 0) return 0;
   return (n * sumXY - sumX * sumY) / denom;
 }
-
-function generateMockRows() {
-  const rows = [];
-  let idCounter = 1;
-  EXERCISES.forEach((ex) => {
-    for (let w = 0; w < WEEKS; w++) {
-      const isDeload = w === 4 || w === 8;
-      const weekStart = new Date(ANCHOR_DATE);
-      weekStart.setDate(weekStart.getDate() - (WEEKS - 1 - w) * 7);
-      const date = new Date(weekStart);
-      date.setDate(date.getDate() + ex.dayOffset);
-
-      const wave = Math.sin(w / 1.7) * (ex.base * 0.015);
-      const progress = ex.base + ex.gain * w + wave;
-      const topWeight = round25(isDeload ? progress * 0.85 : progress);
-
-      const setPlan = isDeload
-        ? [{ reps: 6, drop: 0.1 }, { reps: 6, drop: 0.1 }, { reps: 6, drop: 0.1 }]
-        : [{ reps: 5, drop: 0 }, { reps: 5, drop: 0.03 }, { reps: 4, drop: 0.06 }, { reps: 3, drop: 0.1 }];
-
-      const sessionSets = setPlan.map((s, i) => {
-        const weight_kg = round25(topWeight * (1 - s.drop));
-        const rpe = Math.min(10, Math.round((isDeload ? 6 + i * 0.3 : 7.5 + i * 0.5) * 2) / 2);
-        return { index: i + 1, weight_kg, reps: s.reps, rpe };
-      });
-
-      const best_weight = Math.max(...sessionSets.map((s) => s.weight_kg));
-      const best_volume = sessionSets.reduce((sum, s) => sum + s.weight_kg * s.reps, 0);
-      const best_1rm = Math.max(...sessionSets.map((s) => estOneRM(s.weight_kg, s.reps)));
-
-      sessionSets.forEach((s) => {
-        rows.push({
-          id: idCounter++,
-          work_id: ex.work_id,
-          title: ex.title,
-          set_id: `${ex.work_id}-w${w}-s${s.index}`,
-          weight_kg: s.weight_kg,
-          rpe: s.rpe,
-          reps: s.reps,
-          index: s.index,
-          best_weight,
-          best_volume,
-          best_1rm,
-          muscle_group: ex.muscle_group,
-          completed_at: date.toISOString(),
-          _weekIndex: w,
-        });
-      });
-    }
-  });
-  return rows.sort((a, b) => new Date(a.completed_at) - new Date(b.completed_at));
-}
-
-// export async function fetchWorkoutLogs() {
-//   // Swap this function's body for the real Supabase block above when ready.
-//   // return generateMockRows();
-//   const { data, error } = await supabase
-//     .from('workout_logs') // Replace with your actual table name in Supabase
-//     .select('*')
-//     // .order('created_at', { ascending: false }); // Optional: order by date/timestamp
-
-//   if (error) {
-//     console.error('Error fetching workout logs:', error.message);
-//     throw new Error(error.message);
-//   }
-
-//   return data;
-// }
-
-const MOCK_ROWS = generateMockRows();
 
 const MUSCLE_COLORS = {
   Chest: "#F4B740",
@@ -166,7 +95,7 @@ function acwrZone(v) {
 function buildOneRmSeries(rows) {
   const bySession = {};
   rows.forEach((r) => {
-    const key = r.set_id.split("-s")[0];
+    const key = r.set_id ? r.set_id.split("-s")[0] : `${r.work_id}-${r.completed_at}`;
     if (!bySession[key] || r.best_1rm > bySession[key].best_1rm) bySession[key] = r;
   });
   const sorted = Object.values(bySession).sort((a, b) => new Date(a.completed_at) - new Date(b.completed_at));
@@ -246,19 +175,38 @@ export default function WorkoutDashboard() {
   const [showSetup, setShowSetup] = useState(false);
   const [exOpen, setExOpen] = useState(false);
 
+  // Live Supabase state
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        setLoading(true);
+        const data = await fetchWorkoutLogs();
+        setLogs(data || []);
+      } catch (err) {
+        console.error("Failed to load workout logs from Supabase:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
+
   const period = PERIODS[periodIdx];
   const cutoff = new Date(ANCHOR_DATE);
   cutoff.setDate(cutoff.getDate() - period.weeks * 7);
   const prevCutoff = new Date(cutoff);
   prevCutoff.setDate(prevCutoff.getDate() - period.weeks * 7);
 
-  const inPeriod = useMemo(() => MOCK_ROWS.filter((r) => new Date(r.completed_at) >= cutoff), [cutoff]);
+  const inPeriod = useMemo(() => logs.filter((r) => new Date(r.completed_at) >= cutoff), [logs, cutoff]);
   const prevPeriod = useMemo(
-    () => MOCK_ROWS.filter((r) => new Date(r.completed_at) >= prevCutoff && new Date(r.completed_at) < cutoff),
-    [cutoff, prevCutoff]
+    () => logs.filter((r) => new Date(r.completed_at) >= prevCutoff && new Date(r.completed_at) < cutoff),
+    [logs, cutoff, prevCutoff]
   );
 
-  const exercise = EXERCISES.find((e) => e.work_id === exerciseId);
+  const exercise = EXERCISES.find((e) => e.work_id === exerciseId) || EXERCISES[0];
 
   // ---- Core KPI calculations ----
   const totalVolume = inPeriod.reduce((s, r) => s + r.weight_kg * r.reps, 0);
@@ -269,25 +217,26 @@ export default function WorkoutDashboard() {
   const prevAvgRpe = prevPeriod.length ? prevPeriod.reduce((s, r) => s + r.rpe, 0) / prevPeriod.length : 0;
   const rpeDelta = prevAvgRpe ? ((avgRpe - prevAvgRpe) / prevAvgRpe) * 100 : 0;
 
-  const sessionsCount = new Set(inPeriod.map((r) => r.set_id.split("-s")[0])).size;
-  const prevSessionsCount = new Set(prevPeriod.map((r) => r.set_id.split("-s")[0])).size;
+  const sessionsCount = new Set(inPeriod.map((r) => (r.set_id ? r.set_id.split("-s")[0] : r.completed_at))).size;
+  const prevSessionsCount = new Set(prevPeriod.map((r) => (r.set_id ? r.set_id.split("-s")[0] : r.completed_at))).size;
   const sessionsDelta = prevSessionsCount ? ((sessionsCount - prevSessionsCount) / prevSessionsCount) * 100 : 0;
 
-  const exRows = MOCK_ROWS.filter((r) => r.work_id === exerciseId);
-  const currentBest1RM = exRows.length ? Math.max(...exRows.map((r) => r.best_1rm)) : 0;
+  const exRows = logs.filter((r) => r.work_id === exerciseId);
+  const currentBest1RM = exRows.length ? Math.max(...exRows.map((r) => r.best_1rm || estOneRM(r.weight_kg, r.reps))) : 0;
   const priorBest1RM = exRows
     .filter((r) => new Date(r.completed_at) < cutoff)
-    .reduce((max, r) => Math.max(max, r.best_1rm), 0);
+    .reduce((max, r) => Math.max(max, r.best_1rm || estOneRM(r.weight_kg, r.reps)), 0);
   const oneRmDelta = priorBest1RM ? ((currentBest1RM - priorBest1RM) / priorBest1RM) * 100 : null;
 
   // ---- Weekly training-load stats (full history, used for ACWR + deload) ----
   const weeklyStats = useMemo(() => {
     const volumeByWeek = Array(WEEKS).fill(0);
     const dateByWeek = Array(WEEKS).fill(null);
-    MOCK_ROWS.forEach((r) => {
-      volumeByWeek[r._weekIndex] += r.weight_kg * r.reps;
-      if (!dateByWeek[r._weekIndex] || new Date(r.completed_at) < new Date(dateByWeek[r._weekIndex])) {
-        dateByWeek[r._weekIndex] = r.completed_at;
+    logs.forEach((r) => {
+      const idx = Math.max(0, Math.min(WEEKS - 1, r._weekIndex ?? 0));
+      volumeByWeek[idx] += r.weight_kg * r.reps;
+      if (!dateByWeek[idx] || new Date(r.completed_at) < new Date(dateByWeek[idx])) {
+        dateByWeek[idx] = r.completed_at;
       }
     });
     return volumeByWeek.map((vol, w) => {
@@ -296,21 +245,21 @@ export default function WorkoutDashboard() {
       const chronic = windowVols.reduce((a, b) => a + b, 0) / windowVols.length;
       const acwr = chronic ? Math.round((vol / chronic) * 100) / 100 : 0;
       const isDeload = chronic > 0 && vol < chronic * 0.8;
-      return { weekIndex: w, volume: Math.round(vol), chronic: Math.round(chronic), acwr, isDeload, date: dateByWeek[w] };
+      return { weekIndex: w, volume: Math.round(vol), chronic: Math.round(chronic), acwr, isDeload, date: dateByWeek[w] || ANCHOR_DATE.toISOString() };
     });
-  }, []);
+  }, [logs]);
 
   const visibleWeeklyStats = useMemo(() => weeklyStats.slice(WEEKS - period.weeks), [weeklyStats, period]);
-  const currentAcwr = weeklyStats[WEEKS - 1].acwr;
+  const currentAcwr = weeklyStats[WEEKS - 1]?.acwr || 0;
   const acwrInfo = acwrZone(currentAcwr);
   const deloadWeeksVisible = visibleWeeklyStats.filter((w) => w.isDeload);
   const lastDeloadWeeksAgo = (() => {
-    for (let i = WEEKS - 1; i >= 0; i--) if (weeklyStats[i].isDeload) return WEEKS - 1 - i;
+    for (let i = WEEKS - 1; i >= 0; i--) if (weeklyStats[i]?.isDeload) return WEEKS - 1 - i;
     return null;
   })();
 
   // ---- 1RM trend + progress rate + deload markers, for selected exercise ----
-  const fullSeries = useMemo(() => buildOneRmSeries(exRows), [exerciseId]);
+  const fullSeries = useMemo(() => buildOneRmSeries(exRows), [exRows]);
   const oneRmSeries = useMemo(
     () =>
       fullSeries
@@ -339,7 +288,7 @@ export default function WorkoutDashboard() {
     exRows
       .filter((r) => new Date(r.completed_at) >= cutoff)
       .forEach((r) => {
-        const key = r.set_id.split("-s")[0];
+        const key = r.set_id ? r.set_id.split("-s")[0] : r.completed_at;
         bySession[key] = bySession[key] || { sum: 0, n: 0, date: r.completed_at };
         bySession[key].sum += r.rpe;
         bySession[key].n += 1;
@@ -347,7 +296,7 @@ export default function WorkoutDashboard() {
     return Object.values(bySession)
       .sort((a, b) => new Date(a.date) - new Date(b.date))
       .map((s) => ({ date: fmtDate(s.date), rpe: Math.round((s.sum / s.n) * 10) / 10 }));
-  }, [exerciseId, cutoff]);
+  }, [exRows, cutoff]);
 
   // ---- Inter-session recovery time, by muscle group ----
   const recoveryByMuscle = useMemo(() => {
@@ -370,6 +319,14 @@ export default function WorkoutDashboard() {
   // ---- Recent sets table ----
   const recentSets = [...inPeriod].sort((a, b) => new Date(b.completed_at) - new Date(a.completed_at)).slice(0, 8);
 
+  if (loading) {
+    return (
+      <div className="w-full min-h-screen bg-[#0C0E12] text-[#E7E9EC] flex items-center justify-center text-sm">
+        Loading workout logs from Supabase...
+      </div>
+    );
+  }
+
   return (
     <div className="w-full min-h-full text-[#E7E9EC]" style={{ background: "#0C0E12", fontFamily: "'Inter', sans-serif" }}>
       <style>{`
@@ -387,7 +344,7 @@ export default function WorkoutDashboard() {
               <h1 className="text-xl md:text-2xl font-semibold tracking-tight" style={{ fontFamily: "'Oswald', sans-serif" }}>
                 TRAINING LOG
               </h1>
-              <p className="text-xs text-[#8A919C]">Progress across {WEEKS} weeks · sample data</p>
+              <p className="text-xs text-[#8A919C]">Live Supabase database connection</p>
             </div>
           </div>
 
@@ -650,7 +607,7 @@ export default function WorkoutDashboard() {
               </thead>
               <tbody>
                 {recentSets.map((r, i) => (
-                  <tr key={r.id} className={i % 2 ? "bg-[#0F1216]" : ""}>
+                  <tr key={r.id || i} className={i % 2 ? "bg-[#0F1216]" : ""}>
                     <td className="py-2 pr-3 text-[#8A919C] whitespace-nowrap">
                       {fmtDate(r.completed_at)}
                       {weeklyStats[r._weekIndex]?.isDeload && (
@@ -691,31 +648,12 @@ export default function WorkoutDashboard() {
               </button>
             </div>
             <p className="text-xs text-[#8A919C] mb-3">
-              This dashboard currently reads generated sample rows shaped exactly like your <code className="text-[#E7E9EC]">workout_log</code> table.
-              Swap in your live Supabase project by replacing <code className="text-[#E7E9EC]">fetchWorkoutLogs()</code>:
+              This dashboard is connected directly to your Supabase <code className="text-[#E7E9EC]">workout_log</code> table using the environment variables set in Vercel.
             </p>
             <pre className="text-[10.5px] leading-relaxed bg-[#0C0E12] border border-[#232830] rounded-lg p-3 overflow-x-auto text-[#8FC7B3]">
-{`import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
-
-export async function fetchWorkoutLogs() {
-  const { data, error } = await supabase
-    .from('workout_log')
-    .select('*')
-    .order('completed_at', { ascending: true });
-  if (error) throw error;
-  return data;
-}`}
+{`VITE_SUPABASE_URL=your_project_url
+VITE_SUPABASE_ANON_KEY=your_anon_key`}
             </pre>
-            <p className="text-[10.5px] text-[#8A919C] mt-3">
-              Set <code className="text-[#E7E9EC]">VITE_SUPABASE_URL</code> and <code className="text-[#E7E9EC]">VITE_SUPABASE_ANON_KEY</code> as
-              environment variables in your hosting provider — never hardcode the anon key in source. The load metrics above group rows by
-              calendar week client-side, so no extra columns are needed in the table.
-            </p>
           </div>
         </div>
       )}
