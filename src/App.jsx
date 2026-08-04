@@ -67,9 +67,9 @@ const MUSCLE_COLORS = {
 };
 
 const PERIODS = [
-  { label: "4W", weeks: 4 },
-  { label: "8W", weeks: 8 },
-  { label: "All", weeks: WEEKS },
+  { label: "7D", days: 7 },
+  { label: "1M", days: 30 },
+  { label: "All", days: null }
 ];
 
 function fmtDate(iso) {
@@ -84,21 +84,37 @@ function acwrZone(v) {
   return { label: "High risk", color: "#EF7B57" };
 }
 
-function buildOneRmSeries(rows) {
+function buildOneRmSeries(rows, isAllExercises = false) {
   const bySession = {};
   rows.forEach((r) => {
-    const key = r.set_id ? r.set_id.split("-s")[0] : `${r.work_id || r.title}-${r.completed_at}`;
     const calculated1RM = r.best_1rm || estOneRM(r.weight_kg, r.reps);
-    if (!bySession[key] || calculated1RM > (bySession[key]._calc1RM || 0)) {
-      bySession[key] = { ...r, _calc1RM: calculated1RM };
+    if (isAllExercises) {
+      const dateKey = r.completed_at.slice(0, 10);
+      if (!bySession[dateKey]) {
+        bySession[dateKey] = { completed_at: r.completed_at, oneRms: [] };
+      }
+      bySession[dateKey].oneRms.push(calculated1RM);
+    } else {
+      const key = r.set_id ? r.set_id.split("-s")[0] : `${r.work_id || r.title}-${r.completed_at}`;
+      if (!bySession[key] || calculated1RM > (bySession[key]._calc1RM || 0)) {
+        bySession[key] = { ...r, _calc1RM: calculated1RM };
+      }
     }
   });
+
   const sorted = Object.values(bySession).sort((a, b) => new Date(a.completed_at) - new Date(b.completed_at));
   let runningMax = 0;
-  return sorted.map((r) => {
-    const isPR = r._calc1RM > runningMax;
-    if (isPR) runningMax = r._calc1RM;
-    return { rawDate: r.completed_at, date: fmtDate(r.completed_at), oneRm: r._calc1RM, isPR, weekIndex: r._weekIndex };
+  return sorted.map((item) => {
+    if (isAllExercises) {
+      const avg1Rm = Math.round((item.oneRms.reduce((sum, val) => sum + val, 0) / item.oneRms.length) * 10) / 10;
+      const isPR = avg1Rm > runningMax;
+      if (isPR) runningMax = avg1Rm;
+      return { rawDate: item.completed_at, date: fmtDate(item.completed_at), oneRm: avg1Rm, isPR };
+    } else {
+      const isPR = item._calc1RM > runningMax;
+      if (isPR) runningMax = item._calc1RM;
+      return { rawDate: item.completed_at, date: fmtDate(item.completed_at), oneRm: item._calc1RM, isPR, weekIndex: item._weekIndex };
+    }
   });
 }
 
@@ -164,9 +180,17 @@ function CustomTooltip({ active, payload, label, suffix }) {
 
 export default function WorkoutDashboard() {
   const [periodIdx, setPeriodIdx] = useState(2); // Default to 'All'
-  const [selectedExerciseId, setSelectedExerciseId] = useState(null);
+  const [selectedExerciseId, setSelectedExerciseId] = useState("all");
   const [showSetup, setShowSetup] = useState(false);
   const [exOpen, setExOpen] = useState(false);
+  const [dateDropdownOpen, setDateDropdownOpen] = useState(false);
+  const [exerciseDropdownOpen, setExerciseDropdownOpen] = useState(false);
+
+  const [dateFilterMode, setDateFilterMode] = useState("all"); // "all" or "custom"
+  const [selectedDates, setSelectedDates] = useState([]);
+
+  const [sortColumn, setSortColumn] = useState("completed_at");
+  const [sortDirection, setSortDirection] = useState("desc");
 
   const [rawLogs, setRawLogs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -204,19 +228,30 @@ export default function WorkoutDashboard() {
     return Array.from(map.values());
   }, [rawLogs]);
 
+  // Unique list of dates in YYYY-MM-DD format
+  const uniqueDates = useMemo(() => {
+    if (!rawLogs.length) return [];
+    const dates = rawLogs.map((r) => r.completed_at?.slice(0, 10)).filter(Boolean);
+    return [...new Set(dates)].sort().reverse();
+  }, [rawLogs]);
+
   // Set default selected exercise once data loads
   useEffect(() => {
     if (exercisesList.length && !selectedExerciseId) {
-      setSelectedExerciseId(exercisesList[0].work_id);
+      setSelectedExerciseId("all");
     }
   }, [exercisesList, selectedExerciseId]);
 
-  // 2. Dynamic Anchor Date derived from the latest log date in Supabase
+  // 2. Dynamic Anchor Date derived from selected custom dates or the latest log date in Supabase
   const anchorDate = useMemo(() => {
+    if (dateFilterMode === "custom" && selectedDates.length > 0) {
+      const latestSelected = [...selectedDates].sort().reverse()[0];
+      return new Date(latestSelected + "T23:59:59Z");
+    }
     if (!rawLogs.length) return new Date();
     const latestIso = rawLogs.reduce((max, r) => (r.completed_at > max ? r.completed_at : max), rawLogs[0].completed_at);
     return new Date(latestIso);
-  }, [rawLogs]);
+  }, [rawLogs, dateFilterMode, selectedDates]);
 
   // 3. Attach derived week indices relative to the latest log
   const logs = useMemo(() => {
@@ -224,123 +259,316 @@ export default function WorkoutDashboard() {
       const rowDate = new Date(row.completed_at);
       const diffDays = Math.floor((anchorDate - rowDate) / (1000 * 60 * 60 * 24));
       const weeksAgo = Math.floor(diffDays / 7);
-      const weekIdx = WEEKS - 1 - weeksAgo;
+      const weekIdx = 10 - 1 - weeksAgo;
       return {
         ...row,
-        _weekIndex: Math.max(0, Math.min(WEEKS - 1, weekIdx)),
+        _weekIndex: Math.max(0, Math.min(10 - 1, weekIdx)),
       };
     });
   }, [rawLogs, anchorDate]);
 
   const period = PERIODS[periodIdx];
   const cutoff = useMemo(() => {
+    if (period.days === null) {
+      return new Date(0); // Epoch
+    }
     const c = new Date(anchorDate);
-    c.setDate(c.getDate() - period.weeks * 7);
+    c.setDate(c.getDate() - period.days);
     return c;
   }, [anchorDate, period]);
 
   const prevCutoff = useMemo(() => {
+    if (period.days === null) {
+      return new Date(0);
+    }
     const c = new Date(cutoff);
-    c.setDate(c.getDate() - period.weeks * 7);
+    c.setDate(c.getDate() - period.days);
     return c;
   }, [cutoff, period]);
 
-  const inPeriod = useMemo(() => logs.filter((r) => new Date(r.completed_at) >= cutoff), [logs, cutoff]);
-  const prevPeriod = useMemo(
-    () => logs.filter((r) => new Date(r.completed_at) >= prevCutoff && new Date(r.completed_at) < cutoff),
-    [logs, cutoff, prevCutoff]
-  );
+  // Filter logs globally based on selected exercise
+  const exerciseFilteredLogs = useMemo(() => {
+    if (selectedExerciseId === "all") {
+      return logs;
+    }
+    return logs.filter((r) => (r.work_id || r.title) === selectedExerciseId);
+  }, [logs, selectedExerciseId]);
 
-  const activeExercise = exercisesList.find((e) => e.work_id === selectedExerciseId) || exercisesList[0] || { title: "N/A", muscle_group: "N/A" };
+  const activeExercise = useMemo(() => {
+    return exercisesList.find((e) => e.work_id === selectedExerciseId) || { title: "Overall", muscle_group: "Multiple" };
+  }, [exercisesList, selectedExerciseId]);
 
-  // ---- Core KPI calculations ----
-  const totalVolume = inPeriod.reduce((s, r) => s + (r.weight_kg || 0) * (r.reps || 0), 0);
-  const prevVolume = prevPeriod.reduce((s, r) => s + (r.weight_kg || 0) * (r.reps || 0), 0);
+  // ---- Core KPI calculations using kpiLogs ----
+  const kpiLogs = useMemo(() => {
+    let current = [];
+    let prior = [];
+    
+    if (dateFilterMode === "custom") {
+      current = exerciseFilteredLogs.filter(r => selectedDates.includes(r.completed_at.slice(0, 10)));
+      
+      if (selectedDates.length > 0) {
+        const minDate = [...selectedDates].sort()[0];
+        const exerciseDates = [...new Set(exerciseFilteredLogs.map(r => r.completed_at.slice(0, 10)))].sort().reverse();
+        const priorDates = exerciseDates.filter(d => d < minDate);
+        if (priorDates.length > 0) {
+          const prevDate = priorDates[0];
+          prior = exerciseFilteredLogs.filter(r => r.completed_at.slice(0, 10) === prevDate);
+        }
+      }
+    } else {
+      current = exerciseFilteredLogs.filter(r => new Date(r.completed_at) >= cutoff && new Date(r.completed_at) <= anchorDate);
+      prior = exerciseFilteredLogs.filter(r => new Date(r.completed_at) >= prevCutoff && new Date(r.completed_at) < cutoff);
+    }
+    return { current, prior };
+  }, [exerciseFilteredLogs, dateFilterMode, selectedDates, cutoff, prevCutoff, anchorDate]);
+
+  const totalVolume = kpiLogs.current.reduce((s, r) => s + (r.weight_kg || 0) * (r.reps || 0), 0);
+  const prevVolume = kpiLogs.prior.reduce((s, r) => s + (r.weight_kg || 0) * (r.reps || 0), 0);
   const volumeDelta = prevVolume ? ((totalVolume - prevVolume) / prevVolume) * 100 : 0;
 
-  const avgRpe = inPeriod.length ? inPeriod.reduce((s, r) => s + (r.rpe || 0), 0) / inPeriod.length : 0;
-  const prevAvgRpe = prevPeriod.length ? prevPeriod.reduce((s, r) => s + (r.rpe || 0), 0) / prevPeriod.length : 0;
+  const avgRpe = kpiLogs.current.length ? kpiLogs.current.reduce((s, r) => s + (r.rpe || 0), 0) / kpiLogs.current.length : 0;
+  const prevAvgRpe = kpiLogs.prior.length ? kpiLogs.prior.reduce((s, r) => s + (r.rpe || 0), 0) / kpiLogs.prior.length : 0;
   const rpeDelta = prevAvgRpe ? ((avgRpe - prevAvgRpe) / prevAvgRpe) * 100 : 0;
 
-  const sessionsCount = new Set(inPeriod.map((r) => (r.set_id ? r.set_id.split("-s")[0] : r.completed_at?.slice(0, 10)))).size;
-  const prevSessionsCount = new Set(prevPeriod.map((r) => (r.set_id ? r.set_id.split("-s")[0] : r.completed_at?.slice(0, 10)))).size;
+  const sessionsCount = new Set(kpiLogs.current.map((r) => (r.set_id ? r.set_id.split("-s")[0] : r.completed_at?.slice(0, 10)))).size;
+  const prevSessionsCount = new Set(kpiLogs.prior.map((r) => (r.set_id ? r.set_id.split("-s")[0] : r.completed_at?.slice(0, 10)))).size;
   const sessionsDelta = prevSessionsCount ? ((sessionsCount - prevSessionsCount) / prevSessionsCount) * 100 : 0;
 
-  const exRows = useMemo(() => logs.filter((r) => (r.work_id || r.title) === selectedExerciseId), [logs, selectedExerciseId]);
-  const currentBest1RM = exRows.length ? Math.max(...exRows.map((r) => r.best_1rm || estOneRM(r.weight_kg, r.reps))) : 0;
-  const priorBest1RM = exRows
-    .filter((r) => new Date(r.completed_at) < cutoff)
-    .reduce((max, r) => Math.max(max, r.best_1rm || estOneRM(r.weight_kg, r.reps)), 0);
+  const currentBest1RM = kpiLogs.current.length ? Math.max(...kpiLogs.current.map(r => r.best_1rm || estOneRM(r.weight_kg, r.reps))) : 0;
+  const priorBest1RM = kpiLogs.prior.length ? Math.max(...kpiLogs.prior.map(r => r.best_1rm || estOneRM(r.weight_kg, r.reps))) : 0;
   const oneRmDelta = priorBest1RM ? ((currentBest1RM - priorBest1RM) / priorBest1RM) * 100 : null;
 
   // ---- Weekly training-load stats (ACWR) ----
   const weeklyStats = useMemo(() => {
-    const volumeByWeek = Array(WEEKS).fill(0);
-    const dateByWeek = Array(WEEKS).fill(null);
-    logs.forEach((r) => {
-      const idx = r._weekIndex;
-      volumeByWeek[idx] += (r.weight_kg || 0) * (r.reps || 0);
-      if (!dateByWeek[idx] || new Date(r.completed_at) < new Date(dateByWeek[idx])) {
-        dateByWeek[idx] = r.completed_at;
+    if (!exerciseFilteredLogs.length) return [];
+    
+    const logsBeforeAnchor = exerciseFilteredLogs.filter(r => new Date(r.completed_at) <= anchorDate);
+    if (!logsBeforeAnchor.length) return [];
+    
+    const minDate = logsBeforeAnchor.reduce((min, r) => r.completed_at < min ? r.completed_at : min, logsBeforeAnchor[0].completed_at);
+    const minD = new Date(minDate);
+    const totalDays = Math.ceil((anchorDate - minD) / (1000 * 60 * 60 * 24));
+    const totalWeeks = Math.max(10, Math.ceil(totalDays / 7));
+    
+    const volumeByWeek = Array(totalWeeks).fill(0);
+    const dateByWeek = Array(totalWeeks).fill(null);
+    
+    logsBeforeAnchor.forEach((r) => {
+      const rowDate = new Date(r.completed_at);
+      const diffDays = Math.floor((anchorDate - rowDate) / (1000 * 60 * 60 * 24));
+      const weeksAgo = Math.floor(diffDays / 7);
+      const weekIdx = totalWeeks - 1 - weeksAgo;
+      
+      if (weekIdx >= 0 && weekIdx < totalWeeks) {
+        volumeByWeek[weekIdx] += (r.weight_kg || 0) * (r.reps || 0);
+        if (!dateByWeek[weekIdx] || new Date(r.completed_at) < new Date(dateByWeek[weekIdx])) {
+          dateByWeek[weekIdx] = r.completed_at;
+        }
       }
     });
+
     return volumeByWeek.map((vol, w) => {
       const windowStart = Math.max(0, w - 3);
       const windowVols = volumeByWeek.slice(windowStart, w + 1);
       const chronic = windowVols.reduce((a, b) => a + b, 0) / windowVols.length;
       const acwr = chronic ? Math.round((vol / chronic) * 100) / 100 : 0;
       const isDeload = chronic > 0 && vol < chronic * 0.8;
-      return { weekIndex: w, volume: Math.round(vol), chronic: Math.round(chronic), acwr, isDeload, date: dateByWeek[w] };
+      const calculatedDate = dateByWeek[w] || new Date(anchorDate.getTime() - (totalWeeks - 1 - w) * 7 * 24 * 60 * 60 * 1000).toISOString();
+      return { weekIndex: w, volume: Math.round(vol), chronic: Math.round(chronic), acwr, isDeload, date: calculatedDate };
     });
-  }, [logs]);
+  }, [exerciseFilteredLogs, anchorDate]);
 
-  const visibleWeeklyStats = useMemo(() => weeklyStats.slice(WEEKS - period.weeks), [weeklyStats, period]);
-  const currentAcwr = weeklyStats[WEEKS - 1]?.acwr || 0;
+  // Adjust ACWR visible weekly stats based on period selection
+  const visibleWeeklyStats = useMemo(() => {
+    if (!weeklyStats.length) return [];
+    if (period.days === 7) return weeklyStats.slice(-8); // Show 8 weeks for context
+    if (period.days === 30) return weeklyStats.slice(-12);
+    return weeklyStats;
+  }, [weeklyStats, period]);
+
+  const currentAcwr = weeklyStats.length ? weeklyStats[weeklyStats.length - 1].acwr : 0;
   const acwrInfo = acwrZone(currentAcwr);
 
-  // ---- 1RM series for selected exercise ----
-  const fullSeries = useMemo(() => buildOneRmSeries(exRows), [exRows]);
-  const oneRmSeries = useMemo(
-    () =>
-      fullSeries
-        .filter((p) => new Date(p.rawDate) >= cutoff)
-        .map((p) => ({ ...p, isDeload: weeklyStats[p.weekIndex]?.isDeload })),
-    [fullSeries, cutoff, weeklyStats]
-  );
-  const progressRate = linregSlope(oneRmSeries.map((p, i) => ({ x: i, y: p.oneRm })));
-  const progressRatePct = oneRmSeries.length && oneRmSeries[0].oneRm ? (progressRate / oneRmSeries[0].oneRm) * 100 : 0;
+  // ---- 1RM series for trend chart (shows history leading up to anchor) ----
+  const trendBaseLogs = useMemo(() => {
+    return exerciseFilteredLogs.filter(r => new Date(r.completed_at) <= anchorDate);
+  }, [exerciseFilteredLogs, anchorDate]);
+
+  const fullSeries = useMemo(() => {
+    return buildOneRmSeries(trendBaseLogs, selectedExerciseId === "all");
+  }, [trendBaseLogs, selectedExerciseId]);
+
+  const oneRmSeries = useMemo(() => {
+    return fullSeries.filter(p => new Date(p.rawDate) >= cutoff);
+  }, [fullSeries, cutoff]);
+
+  const overallProgressRateStats = useMemo(() => {
+    if (selectedExerciseId !== "all") {
+      const slope = linregSlope(oneRmSeries.map((p, i) => ({ x: i, y: p.oneRm })));
+      const start1Rm = oneRmSeries.length ? oneRmSeries[0].oneRm : 0;
+      const slopePct = start1Rm ? (slope / start1Rm) * 100 : 0;
+      return { slope, slopePct };
+    } else {
+      const slopes = exercisesList.map(ex => {
+        const exLogs = logs.filter(r => (r.work_id || r.title) === ex.work_id && new Date(r.completed_at) <= anchorDate);
+        const series = buildOneRmSeries(exLogs, false).filter(p => new Date(p.rawDate) >= cutoff);
+        const slope = linregSlope(series.map((p, i) => ({ x: i, y: p.oneRm })));
+        const start1Rm = series.length ? series[0].oneRm : 0;
+        return { slope, start1Rm };
+      }).filter(s => s.slope !== 0);
+
+      if (!slopes.length) return { slope: 0, slopePct: 0 };
+      const avgSlope = slopes.reduce((sum, s) => sum + s.slope, 0) / slopes.length;
+      const avgStart = slopes.reduce((sum, s) => sum + s.start1Rm, 0) / slopes.length;
+      const avgSlopePct = avgStart ? (avgSlope / avgStart) * 100 : 0;
+      return { slope: avgSlope, slopePct: avgSlopePct };
+    }
+  }, [selectedExerciseId, oneRmSeries, exercisesList, cutoff, anchorDate, logs]);
 
   // ---- Volume by muscle group ----
+  const muscleVolumeLogs = useMemo(() => {
+    if (dateFilterMode === "custom") {
+      return exerciseFilteredLogs.filter(r => selectedDates.includes(r.completed_at.slice(0, 10)));
+    }
+    return exerciseFilteredLogs.filter(r => new Date(r.completed_at) >= cutoff && new Date(r.completed_at) <= anchorDate);
+  }, [exerciseFilteredLogs, dateFilterMode, selectedDates, cutoff, anchorDate]);
+
   const volumeByMuscle = useMemo(() => {
     const weeks = {};
-    inPeriod.forEach((r) => {
-      const wk = fmtDate(r.completed_at);
-      weeks[wk] = weeks[wk] || { week: wk };
+    let totalWeeks = 10;
+    if (muscleVolumeLogs.length) {
+      const minDate = muscleVolumeLogs.reduce((min, r) => r.completed_at < min ? r.completed_at : min, muscleVolumeLogs[0].completed_at);
+      const minD = new Date(minDate);
+      const totalDays = Math.ceil((anchorDate - minD) / (1000 * 60 * 60 * 24));
+      totalWeeks = Math.max(10, Math.ceil(totalDays / 7));
+    }
+
+    muscleVolumeLogs.forEach((r) => {
+      const rowDate = new Date(r.completed_at);
+      const diffDays = Math.floor((anchorDate - rowDate) / (1000 * 60 * 60 * 24));
+      const weeksAgo = Math.floor(diffDays / 7);
+      
+      const groupKey = (period.days && period.days <= 30) || dateFilterMode === "custom" 
+        ? fmtDate(r.completed_at) 
+        : `Wk ${totalWeeks - weeksAgo}`;
+        
+      weeks[groupKey] = weeks[groupKey] || { name: groupKey };
       const mg = r.muscle_group || "Other";
-      weeks[wk][mg] = (weeks[wk][mg] || 0) + (r.weight_kg || 0) * (r.reps || 0);
+      weeks[groupKey][mg] = (weeks[groupKey][mg] || 0) + (r.weight_kg || 0) * (r.reps || 0);
     });
     return Object.values(weeks);
-  }, [inPeriod]);
-  const muscleGroups = [...new Set(inPeriod.map((r) => r.muscle_group || "Other"))];
+  }, [muscleVolumeLogs, period, dateFilterMode, anchorDate]);
+
+  const muscleGroups = useMemo(() => {
+    return [...new Set(muscleVolumeLogs.map((r) => r.muscle_group || "Other"))];
+  }, [muscleVolumeLogs]);
 
   // ---- RPE trend ----
   const rpeSeries = useMemo(() => {
     const bySession = {};
-    exRows
-      .filter((r) => new Date(r.completed_at) >= cutoff)
-      .forEach((r) => {
-        const key = r.set_id ? r.set_id.split("-s")[0] : r.completed_at;
-        bySession[key] = bySession[key] || { sum: 0, n: 0, date: r.completed_at };
-        bySession[key].sum += r.rpe || 0;
-        bySession[key].n += 1;
-      });
+    const logsInRange = trendBaseLogs.filter(r => new Date(r.completed_at) >= cutoff);
+    
+    logsInRange.forEach((r) => {
+      const key = r.completed_at.slice(0, 10);
+      bySession[key] = bySession[key] || { sum: 0, n: 0, date: r.completed_at };
+      bySession[key].sum += r.rpe || 0;
+      bySession[key].n += 1;
+    });
     return Object.values(bySession)
       .sort((a, b) => new Date(a.date) - new Date(b.date))
       .map((s) => ({ date: fmtDate(s.date), rpe: Math.round((s.sum / s.n) * 10) / 10 }));
-  }, [exRows, cutoff]);
+  }, [trendBaseLogs, cutoff]);
 
-  // ---- Recent sets table ----
-  const recentSets = [...inPeriod].sort((a, b) => new Date(b.completed_at) - new Date(a.completed_at)).slice(0, 8);
+  // ---- Sorted table logs for records table ----
+  const tableLogs = useMemo(() => {
+    if (dateFilterMode === "custom") {
+      return exerciseFilteredLogs.filter(r => selectedDates.includes(r.completed_at.slice(0, 10)));
+    }
+    return exerciseFilteredLogs.filter(r => new Date(r.completed_at) >= cutoff && new Date(r.completed_at) <= anchorDate);
+  }, [exerciseFilteredLogs, dateFilterMode, selectedDates, cutoff, anchorDate]);
+
+  const sortedTableLogs = useMemo(() => {
+    const items = [...tableLogs];
+    if (!sortColumn) return items;
+    
+    items.sort((a, b) => {
+      let valA, valB;
+      
+      switch (sortColumn) {
+        case "completed_at":
+          valA = new Date(a.completed_at).getTime();
+          valB = new Date(b.completed_at).getTime();
+          break;
+        case "title":
+          valA = (a.title || a.work_id || "").toLowerCase();
+          valB = (b.title || b.work_id || "").toLowerCase();
+          break;
+        case "muscle_group":
+          valA = (a.muscle_group || "General").toLowerCase();
+          valB = (b.muscle_group || "General").toLowerCase();
+          break;
+        case "weight_kg":
+          valA = a.weight_kg ?? 0;
+          valB = b.weight_kg ?? 0;
+          break;
+        case "reps":
+          valA = a.reps ?? 0;
+          valB = b.reps ?? 0;
+          break;
+        case "rpe":
+          valA = a.rpe ?? 0;
+          valB = b.rpe ?? 0;
+          break;
+        case "est1rm":
+          valA = estOneRM(a.weight_kg, a.reps);
+          valB = estOneRM(b.weight_kg, b.reps);
+          break;
+        default:
+          valA = 0;
+          valB = 0;
+      }
+      
+      if (valA < valB) return sortDirection === "asc" ? -1 : 1;
+      if (valA > valB) return sortDirection === "asc" ? 1 : -1;
+      return 0;
+    });
+    
+    return items;
+  }, [tableLogs, sortColumn, sortDirection]);
+
+  const recentSets = useMemo(() => {
+    return sortedTableLogs.slice(0, 15);
+  }, [sortedTableLogs]);
+
+  const toggleDate = (date) => {
+    if (dateFilterMode === "all") {
+      setDateFilterMode("custom");
+      setSelectedDates([date]);
+    } else {
+      setSelectedDates((prev) =>
+        prev.includes(date) ? prev.filter((d) => d !== date) : [...prev, date]
+      );
+    }
+  };
+
+  const selectAllDates = () => {
+    setDateFilterMode("all");
+    setSelectedDates([]);
+  };
+
+  const clearSelectedDates = () => {
+    setDateFilterMode("custom");
+    setSelectedDates([]);
+  };
+
+  const handleSort = (column) => {
+    if (sortColumn === column) {
+      setSortDirection(prev => prev === "asc" ? "desc" : "asc");
+    } else {
+      setSortColumn(column);
+      setSortDirection("desc");
+    }
+  };
 
   if (loading) {
     return (
@@ -374,7 +602,18 @@ export default function WorkoutDashboard() {
         @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
       `}</style>
 
-      <div className="max-w-5xl mx-auto p-5 md:p-8 space-y-6">
+      {/* Click outside overlay for custom dropdowns */}
+      {(dateDropdownOpen || exerciseDropdownOpen) && (
+        <div 
+          className="fixed inset-0 z-10" 
+          onClick={() => {
+            setDateDropdownOpen(false);
+            setExerciseDropdownOpen(false);
+          }}
+        />
+      )}
+
+      <div className="max-w-5xl mx-auto p-5 md:p-8 space-y-6 relative z-0">
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -391,20 +630,119 @@ export default function WorkoutDashboard() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={loadData}
-              className="flex items-center gap-1.5 text-xs text-[#8A919C] border border-[#232830] hover:border-[#3A414C] rounded-lg px-3 py-2 transition-colors"
-            >
-              <RefreshCw size={13} /> Refresh
-            </button>
-            <button
-              onClick={() => setShowSetup(true)}
-              className="flex items-center gap-1.5 text-xs text-[#8A919C] border border-[#232830] hover:border-[#3A414C] rounded-lg px-3 py-2 transition-colors"
-            >
-              <Database size={13} /> Status
-            </button>
-            <div className="flex rounded-lg border border-[#232830] overflow-hidden">
+          <div className="flex flex-wrap items-center gap-2 z-20">
+            {/* Global Workout Filter Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setExerciseDropdownOpen(!exerciseDropdownOpen);
+                  setDateDropdownOpen(false);
+                }}
+                className="flex items-center gap-1.5 text-xs text-[#8A919C] border border-[#232830] hover:border-[#3A414C] bg-[#15181D] rounded-lg px-3 py-2 transition-colors min-w-[150px] justify-between"
+              >
+                <div className="flex items-center gap-1.5">
+                  <Dumbbell size={13} color="#F4B740" />
+                  <span className="truncate max-w-[120px]">
+                    {selectedExerciseId === "all" ? "All Workouts" : activeExercise.title}
+                  </span>
+                </div>
+                <ChevronDown size={13} />
+              </button>
+              {exerciseDropdownOpen && (
+                <div className="absolute right-0 mt-1 w-56 rounded-lg border border-[#232830] bg-[#1B1F26] shadow-xl z-30 overflow-hidden max-h-60 overflow-y-auto">
+                  <button
+                    onClick={() => {
+                      setSelectedExerciseId("all");
+                      setExerciseDropdownOpen(false);
+                    }}
+                    className={`block w-full text-left px-3 py-2 text-xs hover:bg-[#232830] font-medium ${
+                      selectedExerciseId === "all" ? "text-[#F4B740]" : "text-[#E7E9EC]"
+                    }`}
+                  >
+                    All Workouts
+                  </button>
+                  {exercisesList.map((e) => (
+                    <button
+                      key={e.work_id}
+                      onClick={() => {
+                        setSelectedExerciseId(e.work_id);
+                        setExerciseDropdownOpen(false);
+                      }}
+                      className={`block w-full text-left px-3 py-2 text-xs hover:bg-[#232830] ${
+                        selectedExerciseId === e.work_id ? "text-[#F4B740]" : "text-[#E7E9EC]"
+                      }`}
+                    >
+                      {e.title}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Custom Multi-Select Date Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setDateDropdownOpen(!dateDropdownOpen);
+                  setExerciseDropdownOpen(false);
+                }}
+                className="flex items-center gap-1.5 text-xs text-[#8A919C] border border-[#232830] hover:border-[#3A414C] bg-[#15181D] rounded-lg px-3 py-2 transition-colors min-w-[130px] justify-between"
+              >
+                <div className="flex items-center gap-1.5">
+                  <CalendarCheck size={13} color="#F4B740" />
+                  <span>
+                    {dateFilterMode === "all"
+                      ? "All Dates"
+                      : selectedDates.length === 0
+                      ? "No Dates Selected"
+                      : selectedDates.length === 1
+                      ? selectedDates[0]
+                      : `${selectedDates.length} Dates`}
+                  </span>
+                </div>
+                <ChevronDown size={13} />
+              </button>
+              {dateDropdownOpen && (
+                <div className="absolute right-0 mt-1 w-60 rounded-lg border border-[#232830] bg-[#1B1F26] shadow-xl z-30 overflow-hidden">
+                  <div className="p-2 border-b border-[#232830] flex gap-2 justify-between bg-[#15181D]">
+                    <button
+                      onClick={selectAllDates}
+                      className="flex-1 text-[10px] bg-[#232830] hover:bg-[#3A414C] text-[#E7E9EC] font-medium py-1 px-1.5 rounded transition-colors"
+                    >
+                      Select All
+                    </button>
+                    <button
+                      onClick={clearSelectedDates}
+                      className="flex-1 text-[10px] bg-[#232830] hover:bg-[#3A414C] text-[#E7E9EC] font-medium py-1 px-1.5 rounded transition-colors"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto p-2 space-y-1 bg-[#1B1F26]">
+                    {uniqueDates.map((date) => {
+                      const isChecked = dateFilterMode === "all" || selectedDates.includes(date);
+                      return (
+                        <label
+                          key={date}
+                          className="flex items-center gap-2 px-2 py-1 text-xs hover:bg-[#232830] rounded cursor-pointer select-none text-[#E7E9EC] font-mono"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleDate(date)}
+                            className="rounded border-[#232830] bg-[#0C0E12] text-[#F4B740] focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                          />
+                          <span>{date}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Date Range Selector */}
+            <div className="flex rounded-lg border border-[#232830] overflow-hidden bg-[#15181D]">
               {PERIODS.map((p, i) => (
                 <button
                   key={p.label}
@@ -417,6 +755,19 @@ export default function WorkoutDashboard() {
                 </button>
               ))}
             </div>
+
+            <button
+              onClick={loadData}
+              className="flex items-center gap-1.5 text-xs text-[#8A919C] border border-[#232830] hover:border-[#3A414C] bg-[#15181D] rounded-lg px-3 py-2 transition-colors"
+            >
+              <RefreshCw size={13} /> Refresh
+            </button>
+            <button
+              onClick={() => setShowSetup(true)}
+              className="flex items-center gap-1.5 text-xs text-[#8A919C] border border-[#232830] hover:border-[#3A414C] bg-[#15181D] rounded-lg px-3 py-2 transition-colors"
+            >
+              <Database size={13} /> Status
+            </button>
           </div>
         </div>
 
@@ -430,11 +781,11 @@ export default function WorkoutDashboard() {
         ) : (
           <>
             {/* KPI Row 1 */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 relative z-0">
               <KpiCard icon={Flame} label="Total Volume" value={Math.round(totalVolume).toLocaleString()} unit="kg" delta={volumeDelta} accent="#F4B740" />
               <KpiCard
                 icon={Trophy}
-                label={`Best 1RM · ${activeExercise.title}`}
+                label={selectedExerciseId === "all" ? "Best 1RM · Overall" : `Best 1RM · ${activeExercise.title}`}
                 value={currentBest1RM}
                 unit="kg"
                 delta={oneRmDelta}
@@ -445,17 +796,17 @@ export default function WorkoutDashboard() {
             </div>
 
             {/* KPI Row 2 — training-science metrics */}
-            <div>
+            <div className="relative z-0">
               <p className="text-[11px] uppercase tracking-wider text-[#8A919C] mb-2">Load &amp; Recovery</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <MetricCard
                   icon={Rocket}
-                  label={`Progress Rate · ${activeExercise.title}`}
-                  value={`${progressRate >= 0 ? "+" : ""}${progressRate.toFixed(1)}`}
+                  label={selectedExerciseId === "all" ? "Progress Rate · Overall" : `Progress Rate · ${activeExercise.title}`}
+                  value={`${overallProgressRateStats.slope >= 0 ? "+" : ""}${overallProgressRateStats.slope.toFixed(1)}`}
                   unit="kg/session"
-                  accent={progressRate >= 0 ? "#4FD1C5" : "#EF7B57"}
-                  subtitle={`${progressRatePct >= 0 ? "+" : ""}${progressRatePct.toFixed(1)}% trajectory`}
-                  subtitleColor={progressRate >= 0 ? "#4FD1C5" : "#EF7B57"}
+                  accent={overallProgressRateStats.slope >= 0 ? "#4FD1C5" : "#EF7B57"}
+                  subtitle={`${overallProgressRateStats.slopePct >= 0 ? "+" : ""}${overallProgressRateStats.slopePct.toFixed(1)}% trajectory`}
+                  subtitleColor={overallProgressRateStats.slope >= 0 ? "#4FD1C5" : "#EF7B57"}
                 />
                 <MetricCard
                   icon={Gauge}
@@ -469,36 +820,58 @@ export default function WorkoutDashboard() {
               </div>
             </div>
 
+            {/* Volume & RPE Trend Grid (Moved UP below KPIs) */}
+            <div className="grid md:grid-cols-2 gap-6 relative z-0">
+              {/* Volume by muscle group */}
+              <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5">
+                <h2 className="text-sm font-semibold mb-1">Volume by Muscle Group</h2>
+                <p className="text-xs text-[#8A919C] mb-4">Weekly kg lifted across categories</p>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={volumeByMuscle} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                    <CartesianGrid stroke="#1E222A" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fill: "#8A919C", fontSize: 10 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
+                    <YAxis tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<CustomTooltip suffix=" kg" />} />
+                    {muscleGroups.map((mg) => (
+                      <Bar key={mg} dataKey={mg} stackId="vol" fill={MUSCLE_COLORS[mg] || "#8A919C"} radius={[2, 2, 0, 0]} />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* RPE trend */}
+              <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5">
+                <h2 className="text-sm font-semibold mb-1">Fatigue — RPE Trend</h2>
+                <p className="text-xs text-[#8A919C] mb-4">
+                  Avg RPE per session for {selectedExerciseId === "all" ? "Overall Workouts" : activeExercise.title}
+                </p>
+                <ResponsiveContainer width="100%" height={200}>
+                  <AreaChart data={rpeSeries} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="rpeFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#7FA6FF" stopOpacity={0.35} />
+                        <stop offset="100%" stopColor="#7FA6FF" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="#1E222A" vertical={false} />
+                    <XAxis dataKey="date" tick={{ fill: "#8A919C", fontSize: 10 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
+                    <YAxis domain={[4, 10]} tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <ReferenceLine y={9} stroke="#EF7B57" strokeDasharray="3 3" strokeOpacity={0.5} />
+                    <Tooltip content={<CustomTooltip suffix=" RPE" />} />
+                    <Area type="monotone" dataKey="rpe" name="RPE" stroke="#7FA6FF" strokeWidth={2} fill="url(#rpeFill)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
             {/* 1RM Trend */}
-            <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5">
+            <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0">
               <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                 <div>
                   <h2 className="text-sm font-semibold">Progressive Overload — Est. 1RM</h2>
-                  <p className="text-xs text-[#8A919C]">Gold dot = peak PR record</p>
-                </div>
-                <div className="relative">
-                  <button
-                    onClick={() => setExOpen((v) => !v)}
-                    className="flex items-center gap-1.5 text-xs bg-[#0C0E12] border border-[#232830] rounded-lg px-3 py-1.5"
-                  >
-                    {activeExercise.title} <ChevronDown size={13} />
-                  </button>
-                  {exOpen && (
-                    <div className="absolute right-0 mt-1 w-56 rounded-lg border border-[#232830] bg-[#1B1F26] shadow-xl z-10 overflow-hidden max-h-60 overflow-y-auto">
-                      {exercisesList.map((e) => (
-                        <button
-                          key={e.work_id}
-                          onClick={() => {
-                            setSelectedExerciseId(e.work_id);
-                            setExOpen(false);
-                          }}
-                          className="block w-full text-left px-3 py-2 text-xs hover:bg-[#232830]"
-                        >
-                          {e.title}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  <p className="text-xs text-[#8A919C]">
+                    Gold dot = peak PR record ({selectedExerciseId === "all" ? "Overall" : activeExercise.title})
+                  </p>
                 </div>
               </div>
               <ResponsiveContainer width="100%" height={220}>
@@ -533,7 +906,7 @@ export default function WorkoutDashboard() {
             </div>
 
             {/* ACWR Chart */}
-            <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5">
+            <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0">
               <h2 className="text-sm font-semibold mb-1">Training Load — Acute:Chronic Workload Ratio</h2>
               <p className="text-xs text-[#8A919C] mb-4">Volume vs trailing 4-week moving average</p>
               <ResponsiveContainer width="100%" height={200}>
@@ -551,61 +924,34 @@ export default function WorkoutDashboard() {
               </ResponsiveContainer>
             </div>
 
-            <div className="grid md:grid-cols-2 gap-6">
-              {/* Volume by muscle group */}
-              <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5">
-                <h2 className="text-sm font-semibold mb-1">Volume by Muscle Group</h2>
-                <p className="text-xs text-[#8A919C] mb-4">Weekly kg lifted across categories</p>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={volumeByMuscle} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                    <CartesianGrid stroke="#1E222A" vertical={false} />
-                    <XAxis dataKey="week" tick={{ fill: "#8A919C", fontSize: 10 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
-                    <YAxis tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<CustomTooltip suffix=" kg" />} />
-                    {muscleGroups.map((mg) => (
-                      <Bar key={mg} dataKey={mg} stackId="vol" fill={MUSCLE_COLORS[mg] || "#8A919C"} radius={[2, 2, 0, 0]} />
-                    ))}
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* RPE trend */}
-              <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5">
-                <h2 className="text-sm font-semibold mb-1">Fatigue — RPE Trend</h2>
-                <p className="text-xs text-[#8A919C] mb-4">Avg RPE per session for {activeExercise.title}</p>
-                <ResponsiveContainer width="100%" height={200}>
-                  <AreaChart data={rpeSeries} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="rpeFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#7FA6FF" stopOpacity={0.35} />
-                        <stop offset="100%" stopColor="#7FA6FF" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid stroke="#1E222A" vertical={false} />
-                    <XAxis dataKey="date" tick={{ fill: "#8A919C", fontSize: 10 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
-                    <YAxis domain={[4, 10]} tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <ReferenceLine y={9} stroke="#EF7B57" strokeDasharray="3 3" strokeOpacity={0.5} />
-                    <Tooltip content={<CustomTooltip suffix=" RPE" />} />
-                    <Area type="monotone" dataKey="rpe" name="RPE" stroke="#7FA6FF" strokeWidth={2} fill="url(#rpeFill)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* Recent sets table */}
-            <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5">
+            {/* Live Log Records Table (Sortable headers added) */}
+            <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0">
               <h2 className="text-sm font-semibold mb-3">Live Log Records</h2>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="text-left text-[#8A919C] border-b border-[#232830]">
-                      <th className="py-2 pr-3 font-medium">Date</th>
-                      <th className="py-2 pr-3 font-medium">Exercise</th>
-                      <th className="py-2 pr-3 font-medium">Muscle</th>
-                      <th className="py-2 pr-3 font-medium text-right">Weight</th>
-                      <th className="py-2 pr-3 font-medium text-right">Reps</th>
-                      <th className="py-2 pr-3 font-medium text-right">RPE</th>
-                      <th className="py-2 pr-3 font-medium text-right">Est. 1RM</th>
+                      <th className="py-2 pr-3 font-medium cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("completed_at")}>
+                        Date {sortColumn === "completed_at" && (sortDirection === "asc" ? "▲" : "▼")}
+                      </th>
+                      <th className="py-2 pr-3 font-medium cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("title")}>
+                        Exercise {sortColumn === "title" && (sortDirection === "asc" ? "▲" : "▼")}
+                      </th>
+                      <th className="py-2 pr-3 font-medium cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("muscle_group")}>
+                        Muscle {sortColumn === "muscle_group" && (sortDirection === "asc" ? "▲" : "▼")}
+                      </th>
+                      <th className="py-2 pr-3 font-medium text-right cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("weight_kg")}>
+                        Weight {sortColumn === "weight_kg" && (sortDirection === "asc" ? "▲" : "▼")}
+                      </th>
+                      <th className="py-2 pr-3 font-medium text-right cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("reps")}>
+                        Reps {sortColumn === "reps" && (sortDirection === "asc" ? "▲" : "▼")}
+                      </th>
+                      <th className="py-2 pr-3 font-medium text-right cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("rpe")}>
+                        RPE {sortColumn === "rpe" && (sortDirection === "asc" ? "▲" : "▼")}
+                      </th>
+                      <th className="py-2 pr-3 font-medium text-right cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("est1rm")}>
+                        Est. 1RM {sortColumn === "est1rm" && (sortDirection === "asc" ? "▲" : "▼")}
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
