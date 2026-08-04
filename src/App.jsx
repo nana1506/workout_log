@@ -334,8 +334,8 @@ export default function WorkoutDashboard() {
   const prevSessionsCount = new Set(kpiLogs.prior.map((r) => (r.set_id ? r.set_id.split("-s")[0] : r.completed_at?.slice(0, 10)))).size;
   const sessionsDelta = prevSessionsCount ? ((sessionsCount - prevSessionsCount) / prevSessionsCount) * 100 : 0;
 
-  const currentBest1RM = kpiLogs.current.length ? Math.max(...kpiLogs.current.map(r => r.best_1rm || estOneRM(r.weight_kg, r.reps))) : 0;
-  const priorBest1RM = kpiLogs.prior.length ? Math.max(...kpiLogs.prior.map(r => r.best_1rm || estOneRM(r.weight_kg, r.reps))) : 0;
+  const currentBest1RM = kpiLogs.current.length ? Math.round(Math.max(...kpiLogs.current.map(r => r.best_1rm || estOneRM(r.weight_kg, r.reps))) * 100) / 100 : 0;
+  const priorBest1RM = kpiLogs.prior.length ? Math.round(Math.max(...kpiLogs.prior.map(r => r.best_1rm || estOneRM(r.weight_kg, r.reps))) * 100) / 100 : 0;
   const oneRmDelta = priorBest1RM ? ((currentBest1RM - priorBest1RM) / priorBest1RM) * 100 : null;
 
   // ---- Weekly training-load stats (ACWR) ----
@@ -361,7 +361,7 @@ export default function WorkoutDashboard() {
       
       if (weekIdx >= 0 && weekIdx < totalWeeks) {
         volumeByWeek[weekIdx] += (r.weight_kg || 0) * (r.reps || 0);
-        if (!dateByWeek[weekIdx] || new Date(r.completed_at) < new Date(dateByWeek[weekIdx])) {
+        if (!dateByWeek[weekIdx] || new Date(r.completed_at) > new Date(dateByWeek[weekIdx])) {
           dateByWeek[weekIdx] = r.completed_at;
         }
       }
@@ -632,7 +632,7 @@ export default function WorkoutDashboard() {
 
           <div className="flex flex-wrap items-center gap-2 z-20">
             {/* Global Workout Filter Dropdown */}
-            <div className="relative">
+            <div className="relative z-20">
               <button
                 onClick={() => {
                   setExerciseDropdownOpen(!exerciseDropdownOpen);
@@ -680,7 +680,7 @@ export default function WorkoutDashboard() {
             </div>
 
             {/* Custom Multi-Select Date Dropdown */}
-            <div className="relative">
+            <div className="relative z-20">
               <button
                 onClick={() => {
                   setDateDropdownOpen(!dateDropdownOpen);
