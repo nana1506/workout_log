@@ -213,7 +213,16 @@ export default function WorkoutDashboard() {
       setErrorMsg(null);
       const data = await fetchWorkoutLogs();
       console.log("Raw Supabase Data Loaded:", data);
-      setRawLogs(data);
+      
+      // Sanitize logs: filter out invalid/empty rows and normalize workout_id
+      const sanitized = (data || [])
+        .filter((r) => r.completed_at)
+        .map((r) => ({
+          ...r,
+          work_id: r.workout_id || r.work_id,
+        }));
+
+      setRawLogs(sanitized);
     } catch (err) {
       console.error("Failed to load workout logs from Supabase:", err);
       setErrorMsg(err.message || "Failed to load database rows");
