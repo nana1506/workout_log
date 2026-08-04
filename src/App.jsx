@@ -613,7 +613,7 @@ export default function WorkoutDashboard() {
         />
       )}
 
-      <div className="max-w-5xl mx-auto p-5 md:p-8 space-y-6 relative z-0">
+      <div className="max-w-5xl mx-auto p-5 md:p-8 space-y-6 relative">
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -630,7 +630,7 @@ export default function WorkoutDashboard() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 z-20">
+          <div className="flex flex-wrap items-center gap-2 relative z-20">
             {/* Global Workout Filter Dropdown */}
             <div className="relative z-20">
               <button
