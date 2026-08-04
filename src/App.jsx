@@ -689,23 +689,15 @@ export default function WorkoutDashboard() {
     };
   }, [rawLogs, now]);
 
-  // 3. Plateau Detection
-  const plateauStatus = useMemo(() => {
+  // 3a. Selected Exercise Plateau Status (for Insights tab Overload chart banner)
+  const selectedExercisePlateauStatus = useMemo(() => {
     if (selectedExerciseId === "all") {
       return { isPlateaued: false, sessionsFlat: 0, sinceDate: null };
     }
     return detectPlateau(oneRmSeries, 5, 0.015);
   }, [oneRmSeries, selectedExerciseId]);
 
-  // 4. Injury-Risk Flag
-  const injuryRiskFlag = useMemo(() => {
-    if (selectedExerciseId === "all") {
-      return { level: "none", reason: "" };
-    }
-    return detectInjuryRisk(exerciseFilteredLogs);
-  }, [exerciseFilteredLogs, selectedExerciseId]);
-
-  // 5. Fatigue Info (replaces old aiDecisionProjections)
+  // 3b. Fatigue Info (replaces old aiDecisionProjections)
   const fatigueInfo = useMemo(() => {
     if (!musclePriorities.recommended) return null;
     
@@ -750,12 +742,42 @@ export default function WorkoutDashboard() {
     };
   }, [musclePriorities.recommended, rawLogs, currentAcwr]);
 
+  // 4a. Recommended-scoped exercise logs (independent of selectedExerciseId)
+  const recommendedExerciseLogs = useMemo(() => {
+    if (!fatigueInfo?.exerciseName || !rawLogs.length) return [];
+    const exerciseLower = fatigueInfo.exerciseName.trim().toLowerCase();
+    return rawLogs.filter(r => (r.title || r.work_id || "").trim().toLowerCase() === exerciseLower);
+  }, [rawLogs, fatigueInfo?.exerciseName]);
+
+  // 4b. Recommended-scoped exercise 1RM series (independent of selectedExerciseId)
+  const recommendedOneRmSeries = useMemo(() => {
+    const logsBeforeAnchor = recommendedExerciseLogs.filter(r => new Date(r.completed_at) <= anchorDate);
+    const fullSeries = buildOneRmSeries(logsBeforeAnchor, false);
+    return fullSeries.filter(p => new Date(p.rawDate) >= cutoff);
+  }, [recommendedExerciseLogs, anchorDate, cutoff]);
+
+  // 4c. Recommended Exercise Plateau Status (for Decision tab / Gemini prompt)
+  const recommendedExercisePlateauStatus = useMemo(() => {
+    if (!fatigueInfo?.exerciseName) {
+      return { isPlateaued: false, sessionsFlat: 0, sinceDate: null };
+    }
+    return detectPlateau(recommendedOneRmSeries, 5, 0.015);
+  }, [recommendedOneRmSeries, fatigueInfo?.exerciseName]);
+
+  // 4d. Recommended Exercise Injury Risk (for Decision tab / Gemini prompt)
+  const recommendedExerciseInjuryRisk = useMemo(() => {
+    if (!fatigueInfo?.exerciseName) {
+      return { level: "none", reason: "" };
+    }
+    return detectInjuryRisk(recommendedExerciseLogs);
+  }, [recommendedExerciseLogs, fatigueInfo?.exerciseName]);
+
   // 6. LLM Coaching integration with rate-limit loop prevention
   const recommendedMuscleName = musclePriorities.recommended?.muscle;
   const isMuscleRecovered = musclePriorities.recommended?.isRecovered;
-  const isPlateaued = plateauStatus.isPlateaued;
-  const plateauSessions = plateauStatus.sessionsFlat;
-  const injuryRiskLevel = injuryRiskFlag.level;
+  const isPlateaued = recommendedExercisePlateauStatus.isPlateaued;
+  const plateauSessions = recommendedExercisePlateauStatus.sessionsFlat;
+  const injuryRiskLevel = recommendedExerciseInjuryRisk.level;
   const exerciseName = fatigueInfo?.exerciseName;
   const lastWeight = fatigueInfo?.lastWeight;
   const lastReps = fatigueInfo?.lastReps;
@@ -781,8 +803,8 @@ export default function WorkoutDashboard() {
             acwr: currentAcwr,
             acwrZoneLabel: fatigueLevel,
             recentRpeTrend: rpeSeries.slice(-5).map(s => s.rpe),
-            plateauStatus,
-            injuryRiskFlag,
+            plateauStatus: recommendedExercisePlateauStatus,
+            injuryRiskFlag: recommendedExerciseInjuryRisk,
             lastSession: {
               exerciseName,
               weight: lastWeight,
@@ -1192,12 +1214,12 @@ export default function WorkoutDashboard() {
 
                 {/* 1RM Trend */}
                 <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0 space-y-3">
-                  {plateauStatus.isPlateaued && (
+                  {selectedExercisePlateauStatus.isPlateaued && (
                     <div className="rounded-lg border border-[#F4B740]/30 bg-[#F4B740]/5 p-3 flex items-start gap-2 text-xs text-[#F4B740] transition-all">
                       <AlertTriangle size={15} className="shrink-0 mt-0.5" />
                       <div>
                         <span className="font-semibold block">Training Plateau Detected</span>
-                        No meaningful change in estimated 1RM has been achieved in the last {plateauStatus.sessionsFlat} sessions (since {fmtDate(plateauStatus.sinceDate)}). Consider altering your rep ranges or exercise variation to break the adaptation.
+                        No meaningful change in estimated 1RM has been achieved in the last {selectedExercisePlateauStatus.sessionsFlat} sessions (since {fmtDate(selectedExercisePlateauStatus.sinceDate)}). Consider altering your rep ranges or exercise variation to break the adaptation.
                       </div>
                     </div>
                   )}
@@ -1562,14 +1584,14 @@ export default function WorkoutDashboard() {
                             {fatigueInfo.fatigueDetails}
                           </p>
                         </div>
-                        {injuryRiskFlag && injuryRiskFlag.level !== "none" && (
+                        {recommendedExerciseInjuryRisk && recommendedExerciseInjuryRisk.level !== "none" && (
                           <div className="rounded border border-[#EF7B57]/30 bg-[#EF7B57]/5 p-2 flex items-start gap-1.5 text-[11px] text-[#EF7B57] transition-all">
                             <AlertOctagon size={13} className="shrink-0 mt-0.5" />
                             <div>
                               <span className="font-semibold block uppercase tracking-wider text-[9px] text-[#EF7B57]/90">
-                                {injuryRiskFlag.level === "elevated" ? "Elevated Injury Risk" : "Injury Watch"}
+                                {recommendedExerciseInjuryRisk.level === "elevated" ? "Elevated Injury Risk" : "Injury Watch"}
                               </span>
-                              {injuryRiskFlag.reason}
+                              {recommendedExerciseInjuryRisk.reason}
                             </div>
                           </div>
                         )}
