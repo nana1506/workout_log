@@ -6,7 +6,8 @@ import {
 } from "recharts";
 import {
   Dumbbell, TrendingUp, TrendingDown, Flame, CalendarCheck,
-  ChevronDown, Trophy, Database, X, Activity, Rocket, Gauge, Timer, RefreshCw
+  ChevronDown, Trophy, Database, X, Activity, Rocket, Gauge, Timer, RefreshCw,
+  Brain, CheckCircle2, AlertTriangle, ChevronRight
 } from "lucide-react";
 
 import { createClient } from '@supabase/supabase-js';
@@ -179,6 +180,16 @@ function CustomTooltip({ active, payload, label, suffix }) {
 }
 
 export default function WorkoutDashboard() {
+  const [activeTab, setActiveTab] = useState("insights"); // "insights" or "decision"
+  const [now, setNow] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   const [periodIdx, setPeriodIdx] = useState(2); // Default to 'All'
   const [selectedExerciseId, setSelectedExerciseId] = useState("all");
   const [showSetup, setShowSetup] = useState(false);
@@ -540,6 +551,175 @@ export default function WorkoutDashboard() {
     return sortedTableLogs.slice(0, 15);
   }, [sortedTableLogs]);
 
+  // ---- AI Decision Page calculations ----
+  
+  // 1. Recovery Countdown from latest workout log
+  const latestLog = useMemo(() => {
+    if (!rawLogs.length) return null;
+    return rawLogs.reduce((latest, r) => {
+      if (!latest) return r;
+      return new Date(r.completed_at) > new Date(latest.completed_at) ? r : latest;
+    }, null);
+  }, [rawLogs]);
+
+  const recoveryDetails = useMemo(() => {
+    if (!latestLog) return null;
+
+    const rpe = latestLog.rpe || 7;
+    let restHours = 24;
+    if (rpe >= 8) restHours = 48;
+    else if (rpe >= 6) restHours = 36;
+
+    const completedTime = new Date(latestLog.completed_at);
+    const targetTime = new Date(completedTime.getTime() + restHours * 60 * 60 * 1000);
+    const totalDurationMs = restHours * 60 * 60 * 1000;
+
+    return {
+      rpe,
+      restHours,
+      completedTime,
+      targetTime,
+      totalDurationMs
+    };
+  }, [latestLog]);
+
+  const recoveryStatus = useMemo(() => {
+    if (!recoveryDetails) return null;
+    
+    const timeRemainingMs = recoveryDetails.targetTime - now;
+    const isRecovered = timeRemainingMs <= 0;
+    
+    const elapsedMs = now - recoveryDetails.completedTime;
+    const pct = Math.min(100, Math.max(0, Math.round((elapsedMs / recoveryDetails.totalDurationMs) * 100)));
+    
+    let countdownStr = "";
+    if (!isRecovered) {
+      const hours = Math.floor(timeRemainingMs / (1000 * 60 * 60));
+      const mins = Math.floor((timeRemainingMs % (1000 * 60 * 60)) / (1000 * 60));
+      const secs = Math.floor((timeRemainingMs % (1000 * 60)) / 1000);
+      countdownStr = `${hours}h ${mins}m ${secs}s`;
+    }
+
+    return {
+      isRecovered,
+      pct,
+      countdownStr,
+      timeRemainingMs
+    };
+  }, [recoveryDetails, now]);
+
+  // 2. Muscle Recovery & Priorities Recommendation
+  const musclePriorities = useMemo(() => {
+    if (!rawLogs.length) return { fullyRecovered: [], recovering: [], recommended: null };
+    
+    const muscles = [...new Set(rawLogs.map(r => r.muscle_group).filter(Boolean))];
+    
+    const muscleStatus = muscles.map(muscle => {
+      const muscleLogs = rawLogs.filter(r => r.muscle_group === muscle);
+      const latestMuscleLog = muscleLogs.reduce((latest, r) => {
+        if (!latest) return r;
+        return new Date(r.completed_at) > new Date(latest.completed_at) ? r : latest;
+      }, null);
+      
+      const lastTrained = new Date(latestMuscleLog.completed_at);
+      const hoursSince = (now - lastTrained) / (1000 * 60 * 60);
+      const daysSince = Math.round((hoursSince / 24) * 10) / 10;
+      
+      const isRecovered = hoursSince >= 48;
+      const hoursRemaining = Math.max(0, 48 - hoursSince);
+      
+      return {
+        muscle,
+        lastTrained,
+        hoursSince,
+        daysSince,
+        isRecovered,
+        hoursRemaining
+      };
+    });
+
+    const fullyRecovered = muscleStatus
+      .filter(m => m.isRecovered)
+      .sort((a, b) => b.hoursSince - a.hoursSince);
+      
+    const recovering = muscleStatus
+      .filter(m => !m.isRecovered)
+      .sort((a, b) => a.hoursRemaining - b.hoursRemaining);
+      
+    return {
+      fullyRecovered,
+      recovering,
+      recommended: fullyRecovered.length > 0 ? fullyRecovered[0] : (recovering.length > 0 ? recovering[0] : null)
+    };
+  }, [rawLogs, now]);
+
+  // 3. AI Prediction Fatigue & Progressive Overload targets
+  const aiDecisionProjections = useMemo(() => {
+    if (!musclePriorities.recommended) return null;
+    
+    const recommendedMuscle = musclePriorities.recommended.muscle;
+    
+    const muscleLogs = rawLogs.filter(r => r.muscle_group === recommendedMuscle);
+    if (!muscleLogs.length) return null;
+    
+    const latestExerciseLog = muscleLogs.reduce((latest, r) => {
+      if (!latest) return r;
+      return new Date(r.completed_at) > new Date(latest.completed_at) ? r : latest;
+    }, null);
+    
+    const exerciseName = latestExerciseLog.title || latestExerciseLog.work_id;
+    const lastWeight = latestExerciseLog.weight_kg ?? 0;
+    const lastReps = latestExerciseLog.reps ?? 0;
+    
+    let fatigueLevel = "Optimal";
+    let fatigueColor = "#4FD1C5";
+    let fatigueDetails = "Your workload volume is within the sweet spot. Recovery is optimal.";
+    
+    if (currentAcwr > 1.5) {
+      fatigueLevel = "High Danger Zone";
+      fatigueColor = "#EF7B57";
+      fatigueDetails = "Acute load is significantly higher than chronic. High fatigue predicted. Suggest a deload session (reduce weight by 30%).";
+    } else if (currentAcwr >= 1.3) {
+      fatigueLevel = "Caution/Elevated";
+      fatigueColor = "#F4B740";
+      fatigueDetails = "Workload is elevated. Muscle soreness predicted. Keep weight constant, do not overload.";
+    } else if (currentAcwr < 0.8) {
+      fatigueLevel = "Under-stimulated";
+      fatigueColor = "#7FA6FF";
+      fatigueDetails = "Low overall workload. Recovery is full, but stimulus is low. Ready for intense overload.";
+    }
+    
+    let targetWeight = lastWeight;
+    let targetReps = lastReps;
+    let targetRecommendation = "";
+    
+    if (fatigueLevel === "High Danger Zone") {
+      targetWeight = Math.round((lastWeight * 0.7) * 2) / 2;
+      targetRecommendation = `Deload Target: ${targetWeight} kg for ${lastReps} reps (reduce intensity to promote recovery).`;
+    } else if (fatigueLevel === "Caution/Elevated") {
+      targetRecommendation = `Hold Target: ${lastWeight} kg for ${lastReps} reps (focus on form, avoid adding weight to prevent fatigue accumulation).`;
+    } else {
+      const suggestedWeight = Math.round((lastWeight * 1.025) * 2) / 2;
+      if (suggestedWeight > lastWeight) {
+        targetWeight = suggestedWeight;
+        targetRecommendation = `Overload Target: Increase weight to ${targetWeight} kg for ${lastReps} reps (or stay at ${lastWeight} kg for ${lastReps + 1} reps).`;
+      } else {
+        targetReps = lastReps + 1;
+        targetRecommendation = `Overload Target: Stay at ${lastWeight} kg and aim for ${targetReps} reps (progressive overload via volume).`;
+      }
+    }
+    
+    return {
+      exerciseName,
+      lastWeight,
+      lastReps,
+      fatigueLevel,
+      fatigueColor,
+      fatigueDetails,
+      targetRecommendation
+    };
+  }, [musclePriorities.recommended, rawLogs, currentAcwr]);
+
   const toggleDate = (date) => {
     if (dateFilterMode === "all") {
       setDateFilterMode("custom");
@@ -780,208 +960,460 @@ export default function WorkoutDashboard() {
           </div>
         ) : (
           <>
-            {/* KPI Row 1 */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 relative z-0">
-              <KpiCard icon={Flame} label="Total Volume" value={Math.round(totalVolume).toLocaleString()} unit="kg" delta={volumeDelta} accent="#F4B740" />
-              <KpiCard
-                icon={Trophy}
-                label={selectedExerciseId === "all" ? "Best 1RM · Overall" : `Best 1RM · ${activeExercise.title}`}
-                value={currentBest1RM}
-                unit="kg"
-                delta={oneRmDelta}
-                accent="#EF7B57"
-              />
-              <KpiCard icon={Activity} label="Avg RPE" value={avgRpe.toFixed(1)} unit="/ 10" delta={rpeDelta} accent="#7FA6FF" />
-              <KpiCard icon={CalendarCheck} label="Sessions Logged" value={sessionsCount} unit="" delta={sessionsDelta} accent="#4FD1C5" />
+            {/* Tab Selection */}
+            <div className="flex border-b border-[#232830] gap-4">
+              <button
+                onClick={() => setActiveTab("insights")}
+                className={`pb-2.5 text-sm font-semibold tracking-wide border-b-2 transition-all ${
+                  activeTab === "insights"
+                    ? "border-[#F4B740] text-[#F4B740]"
+                    : "border-transparent text-[#8A919C] hover:text-[#E7E9EC]"
+                }`}
+              >
+                Insights Dashboard
+              </button>
+              <button
+                onClick={() => setActiveTab("decision")}
+                className={`pb-2.5 text-sm font-semibold tracking-wide border-b-2 transition-all flex items-center gap-1.5 ${
+                  activeTab === "decision"
+                    ? "border-[#F4B740] text-[#F4B740]"
+                    : "border-transparent text-[#8A919C] hover:text-[#E7E9EC]"
+                }`}
+              >
+                <Brain size={14} /> AI Decision Engine
+              </button>
             </div>
 
-            {/* KPI Row 2 — training-science metrics */}
-            <div className="relative z-0">
-              <p className="text-[11px] uppercase tracking-wider text-[#8A919C] mb-2">Load &amp; Recovery</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <MetricCard
-                  icon={Rocket}
-                  label={selectedExerciseId === "all" ? "Progress Rate · Overall" : `Progress Rate · ${activeExercise.title}`}
-                  value={`${overallProgressRateStats.slope >= 0 ? "+" : ""}${overallProgressRateStats.slope.toFixed(1)}`}
-                  unit="kg/session"
-                  accent={overallProgressRateStats.slope >= 0 ? "#4FD1C5" : "#EF7B57"}
-                  subtitle={`${overallProgressRateStats.slopePct >= 0 ? "+" : ""}${overallProgressRateStats.slopePct.toFixed(1)}% trajectory`}
-                  subtitleColor={overallProgressRateStats.slope >= 0 ? "#4FD1C5" : "#EF7B57"}
-                />
-                <MetricCard
-                  icon={Gauge}
-                  label="ACWR (Latest Week)"
-                  value={currentAcwr.toFixed(2)}
-                  unit=""
-                  accent={acwrInfo.color}
-                  subtitle={acwrInfo.label}
-                  subtitleColor={acwrInfo.color}
-                />
-              </div>
-            </div>
-
-            {/* Volume & RPE Trend Grid (Moved UP below KPIs) */}
-            <div className="grid md:grid-cols-2 gap-6 relative z-0">
-              {/* Volume by muscle group */}
-              <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5">
-                <h2 className="text-sm font-semibold mb-1">Volume by Muscle Group</h2>
-                <p className="text-xs text-[#8A919C] mb-4">Weekly kg lifted across categories</p>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={volumeByMuscle} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                    <CartesianGrid stroke="#1E222A" vertical={false} />
-                    <XAxis dataKey="name" tick={{ fill: "#8A919C", fontSize: 10 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
-                    <YAxis tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<CustomTooltip suffix=" kg" />} />
-                    {muscleGroups.map((mg) => (
-                      <Bar key={mg} dataKey={mg} stackId="vol" fill={MUSCLE_COLORS[mg] || "#8A919C"} radius={[2, 2, 0, 0]} />
-                    ))}
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* RPE trend */}
-              <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5">
-                <h2 className="text-sm font-semibold mb-1">Fatigue — RPE Trend</h2>
-                <p className="text-xs text-[#8A919C] mb-4">
-                  Avg RPE per session for {selectedExerciseId === "all" ? "Overall Workouts" : activeExercise.title}
-                </p>
-                <ResponsiveContainer width="100%" height={200}>
-                  <AreaChart data={rpeSeries} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="rpeFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#7FA6FF" stopOpacity={0.35} />
-                        <stop offset="100%" stopColor="#7FA6FF" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid stroke="#1E222A" vertical={false} />
-                    <XAxis dataKey="date" tick={{ fill: "#8A919C", fontSize: 10 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
-                    <YAxis domain={[4, 10]} tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <ReferenceLine y={9} stroke="#EF7B57" strokeDasharray="3 3" strokeOpacity={0.5} />
-                    <Tooltip content={<CustomTooltip suffix=" RPE" />} />
-                    <Area type="monotone" dataKey="rpe" name="RPE" stroke="#7FA6FF" strokeWidth={2} fill="url(#rpeFill)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* 1RM Trend */}
-            <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0">
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                <div>
-                  <h2 className="text-sm font-semibold">Progressive Overload — Est. 1RM</h2>
-                  <p className="text-xs text-[#8A919C]">
-                    Gold dot = peak PR record ({selectedExerciseId === "all" ? "Overall" : activeExercise.title})
-                  </p>
-                </div>
-              </div>
-              <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={oneRmSeries} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                  <CartesianGrid stroke="#1E222A" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
-                  <YAxis tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} domain={["dataMin - 5", "dataMax + 5"]} />
-                  <Tooltip content={<CustomTooltip suffix=" kg" />} />
-                  <Line
-                    type="monotone"
-                    dataKey="oneRm"
-                    name="Est. 1RM"
-                    stroke="#F4B740"
-                    strokeWidth={2}
-                    dot={(props) => {
-                      const { cx, cy, payload, index } = props;
-                      return (
-                        <circle
-                          key={`dot-${index}`}
-                          cx={cx}
-                          cy={cy}
-                          r={payload.isPR ? 5 : 3}
-                          fill={payload.isPR ? "#F4B740" : "#0C0E12"}
-                          stroke="#F4B740"
-                          strokeWidth={payload.isPR ? 0 : 2}
-                        />
-                      );
-                    }}
+            {/* Insights View */}
+            {activeTab === "insights" && (
+              <>
+                {/* KPI Row 1 */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 relative z-0">
+                  <KpiCard icon={Flame} label="Total Volume" value={Math.round(totalVolume).toLocaleString()} unit="kg" delta={volumeDelta} accent="#F4B740" />
+                  <KpiCard
+                    icon={Trophy}
+                    label={selectedExerciseId === "all" ? "Best 1RM · Overall" : `Best 1RM · ${activeExercise.title}`}
+                    value={currentBest1RM}
+                    unit="kg"
+                    delta={oneRmDelta}
+                    accent="#EF7B57"
                   />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
+                  <KpiCard icon={Activity} label="Avg RPE" value={avgRpe.toFixed(1)} unit="/ 10" delta={rpeDelta} accent="#7FA6FF" />
+                  <KpiCard icon={CalendarCheck} label="Sessions Logged" value={sessionsCount} unit="" delta={sessionsDelta} accent="#4FD1C5" />
+                </div>
 
-            {/* ACWR Chart */}
-            <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0">
-              <h2 className="text-sm font-semibold mb-1">Training Load — Acute:Chronic Workload Ratio</h2>
-              <p className="text-xs text-[#8A919C] mb-4">Volume vs trailing 4-week moving average</p>
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={visibleWeeklyStats.filter(w => w.date).map((w) => ({ ...w, label: fmtDate(w.date) }))} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                  <CartesianGrid stroke="#1E222A" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fill: "#8A919C", fontSize: 10 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
-                  <YAxis domain={[0, 1.8]} tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <ReferenceArea y1={0} y2={0.8} fill="#7FA6FF" fillOpacity={0.08} />
-                  <ReferenceArea y1={0.8} y2={1.3} fill="#4FD1C5" fillOpacity={0.08} />
-                  <ReferenceArea y1={1.3} y2={1.5} fill="#F4B740" fillOpacity={0.1} />
-                  <ReferenceArea y1={1.5} y2={1.8} fill="#EF7B57" fillOpacity={0.1} />
-                  <Tooltip content={<CustomTooltip suffix="" />} />
-                  <Line type="monotone" dataKey="acwr" name="ACWR" stroke="#E7E9EC" strokeWidth={2} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
+                {/* KPI Row 2 — training-science metrics */}
+                <div className="relative z-0">
+                  <p className="text-[11px] uppercase tracking-wider text-[#8A919C] mb-2">Load &amp; Recovery</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <MetricCard
+                      icon={Rocket}
+                      label={selectedExerciseId === "all" ? "Progress Rate · Overall" : `Progress Rate · ${activeExercise.title}`}
+                      value={`${overallProgressRateStats.slope >= 0 ? "+" : ""}${overallProgressRateStats.slope.toFixed(1)}`}
+                      unit="kg/session"
+                      accent={overallProgressRateStats.slope >= 0 ? "#4FD1C5" : "#EF7B57"}
+                      subtitle={`${overallProgressRateStats.slopePct >= 0 ? "+" : ""}${overallProgressRateStats.slopePct.toFixed(1)}% trajectory`}
+                      subtitleColor={overallProgressRateStats.slope >= 0 ? "#4FD1C5" : "#EF7B57"}
+                    />
+                    <MetricCard
+                      icon={Gauge}
+                      label="ACWR (Latest Week)"
+                      value={currentAcwr.toFixed(2)}
+                      unit=""
+                      accent={acwrInfo.color}
+                      subtitle={acwrInfo.label}
+                      subtitleColor={acwrInfo.color}
+                    />
+                  </div>
+                </div>
 
-            {/* Live Log Records Table (Sortable headers added) */}
-            <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0">
-              <h2 className="text-sm font-semibold mb-3">Live Log Records</h2>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-left text-[#8A919C] border-b border-[#232830]">
-                      <th className="py-2 pr-3 font-medium cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("completed_at")}>
-                        Date {sortColumn === "completed_at" && (sortDirection === "asc" ? "▲" : "▼")}
-                      </th>
-                      <th className="py-2 pr-3 font-medium cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("title")}>
-                        Exercise {sortColumn === "title" && (sortDirection === "asc" ? "▲" : "▼")}
-                      </th>
-                      <th className="py-2 pr-3 font-medium cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("muscle_group")}>
-                        Muscle {sortColumn === "muscle_group" && (sortDirection === "asc" ? "▲" : "▼")}
-                      </th>
-                      <th className="py-2 pr-3 font-medium text-right cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("weight_kg")}>
-                        Weight {sortColumn === "weight_kg" && (sortDirection === "asc" ? "▲" : "▼")}
-                      </th>
-                      <th className="py-2 pr-3 font-medium text-right cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("reps")}>
-                        Reps {sortColumn === "reps" && (sortDirection === "asc" ? "▲" : "▼")}
-                      </th>
-                      <th className="py-2 pr-3 font-medium text-right cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("rpe")}>
-                        RPE {sortColumn === "rpe" && (sortDirection === "asc" ? "▲" : "▼")}
-                      </th>
-                      <th className="py-2 pr-3 font-medium text-right cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("est1rm")}>
-                        Est. 1RM {sortColumn === "est1rm" && (sortDirection === "asc" ? "▲" : "▼")}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recentSets.map((r, i) => (
-                      <tr key={r.id || i} className={i % 2 ? "bg-[#0F1216]" : ""}>
-                        <td className="py-2 pr-3 text-[#8A919C] whitespace-nowrap">
-                          {fmtDate(r.completed_at)}
-                        </td>
-                        <td className="py-2 pr-3 font-medium">{r.title || r.work_id}</td>
-                        <td className="py-2 pr-3">
-                          <span
-                            className="px-1.5 py-0.5 rounded text-[10px]"
-                            style={{
-                              background: `${MUSCLE_COLORS[r.muscle_group] || "#8A919C"}22`,
-                              color: MUSCLE_COLORS[r.muscle_group] || "#8A919C"
+                {/* Volume & RPE Trend Grid (Moved UP below KPIs) */}
+                <div className="grid md:grid-cols-2 gap-6 relative z-0">
+                  {/* Volume by muscle group */}
+                  <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5">
+                    <h2 className="text-sm font-semibold mb-1">Volume by Muscle Group</h2>
+                    <p className="text-xs text-[#8A919C] mb-4">Weekly kg lifted across categories</p>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart data={volumeByMuscle} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                        <CartesianGrid stroke="#1E222A" vertical={false} />
+                        <XAxis dataKey="name" tick={{ fill: "#8A919C", fontSize: 10 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
+                        <YAxis tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} />
+                        <Tooltip content={<CustomTooltip suffix=" kg" />} />
+                        {muscleGroups.map((mg) => (
+                          <Bar key={mg} dataKey={mg} stackId="vol" fill={MUSCLE_COLORS[mg] || "#8A919C"} radius={[2, 2, 0, 0]} />
+                        ))}
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  {/* RPE trend */}
+                  <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5">
+                    <h2 className="text-sm font-semibold mb-1">Fatigue — RPE Trend</h2>
+                    <p className="text-xs text-[#8A919C] mb-4">
+                      Avg RPE per session for {selectedExerciseId === "all" ? "Overall Workouts" : activeExercise.title}
+                    </p>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <AreaChart data={rpeSeries} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="rpeFill" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#7FA6FF" stopOpacity={0.35} />
+                            <stop offset="100%" stopColor="#7FA6FF" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid stroke="#1E222A" vertical={false} />
+                        <XAxis dataKey="date" tick={{ fill: "#8A919C", fontSize: 10 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
+                        <YAxis domain={[4, 10]} tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} />
+                        <ReferenceLine y={9} stroke="#EF7B57" strokeDasharray="3 3" strokeOpacity={0.5} />
+                        <Tooltip content={<CustomTooltip suffix=" RPE" />} />
+                        <Area type="monotone" dataKey="rpe" name="RPE" stroke="#7FA6FF" strokeWidth={2} fill="url(#rpeFill)" />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* 1RM Trend */}
+                <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0">
+                  <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                    <div>
+                      <h2 className="text-sm font-semibold">Progressive Overload — Est. 1RM</h2>
+                      <p className="text-xs text-[#8A919C]">
+                        Gold dot = peak PR record ({selectedExerciseId === "all" ? "Overall" : activeExercise.title})
+                      </p>
+                    </div>
+                  </div>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={oneRmSeries} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                      <CartesianGrid stroke="#1E222A" vertical={false} />
+                      <XAxis dataKey="date" tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
+                      <YAxis tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} domain={["dataMin - 5", "dataMax + 5"]} />
+                      <Tooltip content={<CustomTooltip suffix=" kg" />} />
+                      <Line
+                        type="monotone"
+                        dataKey="oneRm"
+                        name="Est. 1RM"
+                        stroke="#F4B740"
+                        strokeWidth={2}
+                        dot={(props) => {
+                          const { cx, cy, payload, index } = props;
+                          return (
+                            <circle
+                              key={`dot-${index}`}
+                              cx={cx}
+                              cy={cy}
+                              r={payload.isPR ? 5 : 3}
+                              fill={payload.isPR ? "#F4B740" : "#0C0E12"}
+                              stroke="#F4B740"
+                              strokeWidth={payload.isPR ? 0 : 2}
+                            />
+                          );
+                        }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* ACWR Chart */}
+                <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0">
+                  <h2 className="text-sm font-semibold mb-1">Training Load — Acute:Chronic Workload Ratio</h2>
+                  <p className="text-xs text-[#8A919C] mb-4">Volume vs trailing 4-week moving average</p>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={visibleWeeklyStats.filter(w => w.date).map((w) => ({ ...w, label: fmtDate(w.date) }))} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                      <CartesianGrid stroke="#1E222A" vertical={false} />
+                      <XAxis dataKey="label" tick={{ fill: "#8A919C", fontSize: 10 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
+                      <YAxis domain={[0, 1.8]} tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <ReferenceArea y1={0} y2={0.8} fill="#7FA6FF" fillOpacity={0.08} />
+                      <ReferenceArea y1={0.8} y2={1.3} fill="#4FD1C5" fillOpacity={0.08} />
+                      <ReferenceArea y1={1.3} y2={1.5} fill="#F4B740" fillOpacity={0.1} />
+                      <ReferenceArea y1={1.5} y2={1.8} fill="#EF7B57" fillOpacity={0.1} />
+                      <Tooltip content={<CustomTooltip suffix="" />} />
+                      <Line type="monotone" dataKey="acwr" name="ACWR" stroke="#E7E9EC" strokeWidth={2} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Live Log Records Table (Sortable headers added) */}
+                <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0">
+                  <h2 className="text-sm font-semibold mb-3">Live Log Records</h2>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-left text-[#8A919C] border-b border-[#232830]">
+                          <th className="py-2 pr-3 font-medium cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("completed_at")}>
+                            Date {sortColumn === "completed_at" && (sortDirection === "asc" ? "▲" : "▼")}
+                          </th>
+                          <th className="py-2 pr-3 font-medium cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("title")}>
+                            Exercise {sortColumn === "title" && (sortDirection === "asc" ? "▲" : "▼")}
+                          </th>
+                          <th className="py-2 pr-3 font-medium cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("muscle_group")}>
+                            Muscle {sortColumn === "muscle_group" && (sortDirection === "asc" ? "▲" : "▼")}
+                          </th>
+                          <th className="py-2 pr-3 font-medium text-right cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("weight_kg")}>
+                            Weight {sortColumn === "weight_kg" && (sortDirection === "asc" ? "▲" : "▼")}
+                          </th>
+                          <th className="py-2 pr-3 font-medium text-right cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("reps")}>
+                            Reps {sortColumn === "reps" && (sortDirection === "asc" ? "▲" : "▼")}
+                          </th>
+                          <th className="py-2 pr-3 font-medium text-right cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("rpe")}>
+                            RPE {sortColumn === "rpe" && (sortDirection === "asc" ? "▲" : "▼")}
+                          </th>
+                          <th className="py-2 pr-3 font-medium text-right cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("est1rm")}>
+                            Est. 1RM {sortColumn === "est1rm" && (sortDirection === "asc" ? "▲" : "▼")}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {recentSets.map((r, i) => (
+                          <tr key={r.id || i} className={i % 2 ? "bg-[#0F1216]" : ""}>
+                            <td className="py-2 pr-3 text-[#8A919C] whitespace-nowrap">
+                              {fmtDate(r.completed_at)}
+                            </td>
+                            <td className="py-2 pr-3 font-medium">{r.title || r.work_id}</td>
+                            <td className="py-2 pr-3">
+                              <span
+                                className="px-1.5 py-0.5 rounded text-[10px]"
+                                style={{
+                                  background: `${MUSCLE_COLORS[r.muscle_group] || "#8A919C"}22`,
+                                  color: MUSCLE_COLORS[r.muscle_group] || "#8A919C"
+                                }}
+                              >
+                                {r.muscle_group || "General"}
+                              </span>
+                            </td>
+                            <td className="py-2 pr-3 text-right tabular-nums">{r.weight_kg ?? 0} kg</td>
+                            <td className="py-2 pr-3 text-right tabular-nums">{r.reps ?? 0}</td>
+                            <td className="py-2 pr-3 text-right tabular-nums">{r.rpe ?? "-"}</td>
+                            <td className="py-2 pr-3 text-right tabular-nums">{estOneRM(r.weight_kg, r.reps)} kg</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* AI Decision Engine View */}
+            {activeTab === "decision" && (
+              <div className="space-y-6">
+                {/* Decision Header/Summary */}
+                <div className="rounded-xl border border-[#232830] bg-gradient-to-r from-[#15181D] to-[#1C1F26] p-6 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-[#F4B740]/10 border border-[#F4B740]/30 flex items-center justify-center">
+                      <Brain size={20} color="#F4B740" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-semibold tracking-tight text-[#E7E9EC]" style={{ fontFamily: "'Oswald', sans-serif" }}>
+                        AI DECISION ENGINE
+                      </h2>
+                      <p className="text-xs text-[#8A919C]">
+                        Personalized training advice powered by your Supabase workout logs
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-6">
+                  {/* Card 1: Recovery Status */}
+                  <div className="rounded-xl border border-[#232830] bg-[#15181D] p-5 flex flex-col justify-between space-y-4">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] uppercase tracking-wider text-[#8A919C]">Recovery Status</span>
+                        <Timer size={16} className="text-[#F4B740]" />
+                      </div>
+                      
+                      {recoveryStatus ? (
+                        <div className="space-y-4 pt-2">
+                          <div className="flex items-baseline gap-2">
+                            {recoveryStatus.isRecovered ? (
+                              <div className="flex flex-col gap-1">
+                                <span className="text-2xl font-semibold text-[#4FD1C5] flex items-center gap-2" style={{ fontFamily: "'Oswald', sans-serif" }}>
+                                  <CheckCircle2 size={24} /> FULLY RECOVERED
+                                </span>
+                                <span className="text-xs text-[#8A919C]">Ready for maximum physical stimulus.</span>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col gap-1">
+                                <span className="text-3xl font-bold font-mono tracking-tight text-[#E7E9EC]">
+                                  {recoveryStatus.countdownStr}
+                                </span>
+                                <span className="text-xs text-[#8A919C]">Remaining until fully recovered.</span>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Recovery Progress Bar */}
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-[11px] text-[#8A919C] font-semibold">
+                              <span>Total Recovery Progress</span>
+                              <span className="text-[#E7E9EC]">{recoveryStatus.pct}%</span>
+                            </div>
+                            <div className="w-full h-2.5 rounded-full bg-[#0C0E12] overflow-hidden border border-[#232830]">
+                              <div 
+                                className="h-full rounded-full transition-all duration-1000 bg-gradient-to-r from-[#F4B740] to-[#4FD1C5]" 
+                                style={{ width: `${recoveryStatus.pct}%` }}
+                              />
+                            </div>
+                          </div>
+                          
+                          <div className="text-xs space-y-1.5 border-t border-[#232830]/50 pt-3 text-[#8A919C]">
+                            <div className="flex justify-between">
+                              <span>Latest Workout:</span>
+                              <span className="text-[#E7E9EC] font-mono">
+                                {recoveryDetails.completedTime.toLocaleDateString("en-US", { month: "short", day: "numeric" })} at {recoveryDetails.completedTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Intensity (RPE):</span>
+                              <span className="text-[#E7E9EC] font-semibold">{recoveryDetails.rpe} / 10</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Recommended Rest:</span>
+                              <span className="text-[#E7E9EC] font-semibold">{recoveryDetails.restHours} Hours</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Recovery Complete:</span>
+                              <span className="text-[#E7E9EC] font-mono">
+                                {recoveryDetails.targetTime.toLocaleDateString("en-US", { month: "short", day: "numeric" })} at {recoveryDetails.targetTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-[#8A919C] pt-2">No recovery data available. Add a workout log to start tracking.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Card 2: Next Workout & Muscle Prioritization */}
+                  <div className="rounded-xl border border-[#232830] bg-[#15181D] p-5 flex flex-col justify-between space-y-4">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] uppercase tracking-wider text-[#8A919C]">Training Recommendation</span>
+                        <Dumbbell size={16} className="text-[#F4B740]" />
+                      </div>
+                      
+                      {musclePriorities.recommended ? (
+                        <div className="space-y-3">
+                          <div className="bg-[#0C0E12] rounded-lg border border-[#232830] p-3 flex items-center justify-between">
+                            <div>
+                              <span className="text-[10px] uppercase tracking-wider text-[#8A919C] block">Target Muscle Group</span>
+                              <span className="text-xl font-semibold text-[#F4B740]" style={{ fontFamily: "'Oswald', sans-serif" }}>
+                                {musclePriorities.recommended.muscle.toUpperCase()}
+                              </span>
+                            </div>
+                            <div className="px-3 py-1 rounded text-xs font-semibold bg-[#4FD1C5]/10 text-[#4FD1C5] border border-[#4FD1C5]/30">
+                              {musclePriorities.recommended.isRecovered ? "Ready" : "Recovering"}
+                            </div>
+                          </div>
+                          
+                          {/* Muscle status breakdowns */}
+                          <div className="space-y-2.5">
+                            <span className="text-[11px] text-[#8A919C] uppercase tracking-wider block font-semibold border-b border-[#232830]/50 pb-1.5">
+                              Muscle Group Status
+                            </span>
+                            
+                            <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+                              {/* Fully Recovered Muscles */}
+                              {musclePriorities.fullyRecovered.map(m => (
+                                <div key={m.muscle} className="flex justify-between items-center text-xs">
+                                  <span className="text-[#E7E9EC] capitalize font-medium">{m.muscle}</span>
+                                  <span className="text-[#4FD1C5] font-semibold text-[11px] flex items-center gap-1">
+                                    <CheckCircle2 size={12} /> Rested {m.daysSince} days
+                                  </span>
+                                </div>
+                              ))}
+                              
+                              {/* Recovering Muscles */}
+                              {musclePriorities.recovering.map(m => (
+                                <div key={m.muscle} className="flex justify-between items-center text-xs">
+                                  <span className="text-[#E7E9EC]/70 capitalize">{m.muscle}</span>
+                                  <span className="text-[#F4B740] font-semibold text-[11px] flex items-center gap-1">
+                                    <AlertTriangle size={12} /> Rest {Math.round(m.hoursRemaining)}h left
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-[#8A919C]">No muscle group logs found to analyze priorities.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card 3: AI Projections & Overload Targets */}
+                {aiDecisionProjections ? (
+                  <div className="rounded-xl border border-[#232830] bg-[#15181D] p-5 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] uppercase tracking-wider text-[#8A919C]">AI Fatigue &amp; Overload Projection</span>
+                      <Brain size={16} className="text-[#F4B740]" />
+                    </div>
+
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {/* Fatigue Predictor */}
+                      <div className="bg-[#0C0E12] rounded-lg border border-[#232830] p-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-[#8A919C] font-semibold">Predicted Fatigue Level</span>
+                          <span 
+                            className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider" 
+                            style={{ 
+                              background: `${aiDecisionProjections.fatigueColor}22`, 
+                              color: aiDecisionProjections.fatigueColor,
+                              border: `1px solid ${aiDecisionProjections.fatigueColor}40`
                             }}
                           >
-                            {r.muscle_group || "General"}
+                            {aiDecisionProjections.fatigueLevel}
                           </span>
-                        </td>
-                        <td className="py-2 pr-3 text-right tabular-nums">{r.weight_kg ?? 0} kg</td>
-                        <td className="py-2 pr-3 text-right tabular-nums">{r.reps ?? 0}</td>
-                        <td className="py-2 pr-3 text-right tabular-nums">{r.rpe ?? "-"}</td>
-                        <td className="py-2 pr-3 text-right tabular-nums">{estOneRM(r.weight_kg, r.reps)} kg</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        </div>
+                        <p className="text-xs text-[#8A919C] leading-relaxed">
+                          {aiDecisionProjections.fatigueDetails}
+                        </p>
+                      </div>
+
+                      {/* Progressive Overload Projections */}
+                      <div className="bg-[#0C0E12] rounded-lg border border-[#232830] p-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-[#8A919C] font-semibold">Next Target Exercise</span>
+                          <span className="text-[#E7E9EC] text-[11px] font-medium font-mono">{aiDecisionProjections.exerciseName}</span>
+                        </div>
+                        <div className="text-xs space-y-1 text-[#8A919C]">
+                          <div className="flex justify-between">
+                            <span>Last Logged Session:</span>
+                            <span className="text-[#E7E9EC] font-semibold font-mono">{aiDecisionProjections.lastWeight} kg x {aiDecisionProjections.lastReps} reps</span>
+                          </div>
+                          <div className="pt-2 border-t border-[#232830] mt-2">
+                            <span className="text-[#F4B740] font-semibold flex items-center gap-1">
+                              <Rocket size={13} /> {aiDecisionProjections.targetRecommendation}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-[#F4B740]/5 rounded-lg border border-[#F4B740]/20 p-4">
+                      <div className="flex gap-2">
+                        <Rocket size={16} className="text-[#F4B740] shrink-0 mt-0.5" />
+                        <div className="space-y-1">
+                          <span className="text-xs font-semibold text-[#F4B740]">AI Growth Recommendation</span>
+                          <p className="text-xs text-[#8A919C] leading-relaxed">
+                            {musclePriorities.recommended && musclePriorities.recommended.isRecovered ? (
+                              `Since your ${musclePriorities.recommended.muscle} group is fully recovered and fatigue remains optimal, today is the ideal time to focus on progressive overload. Apply the suggested overload target for ${aiDecisionProjections.exerciseName} to ensure steady strength progression.`
+                            ) : (
+                              "Your body is currently in an active state of recovery. If you must train today, focus on light recovery movement, stretching, or low-intensity cardio to assist with muscle repair."
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-[#232830] bg-[#15181D] p-5 text-center text-xs text-[#8A919C]">
+                    No projection data could be calculated. Complete more training logs to activate AI fatigue forecasting.
+                  </div>
+                )}
               </div>
-            </div>
+            )}
           </>
         )}
       </div>
