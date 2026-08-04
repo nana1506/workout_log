@@ -62,7 +62,7 @@ Respond ONLY with valid JSON, no markdown fences, no preamble, in this exact sha
         if (!response.ok) {
             const errText = await response.text();
             console.error('Gemini API error:', errText);
-            return res.status(502).json({ error: 'Gemini API request failed' });
+            return res.status(502).json({ error: 'Gemini API request failed', details: errText });
         }
 
         const data = await response.json();
