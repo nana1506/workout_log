@@ -240,12 +240,19 @@ export default function WorkoutDashboard() {
     if (!rawLogs.length) return [];
     const map = new Map();
     rawLogs.forEach((r) => {
-      const id = r.work_id || r.title;
-      if (id && !map.has(id)) {
-        map.set(id, { work_id: id, title: r.title || id, muscle_group: r.muscle_group || "General" });
+      const exerciseTitle = r.title || r.work_id;
+      if (exerciseTitle) {
+        const cleanTitle = exerciseTitle.trim().toLowerCase();
+        if (!map.has(cleanTitle)) {
+          map.set(cleanTitle, {
+            work_id: r.work_id || exerciseTitle,
+            title: r.title || r.work_id,
+            muscle_group: r.muscle_group || "General"
+          });
+        }
       }
     });
-    return Array.from(map.values());
+    return Array.from(map.values()).sort((a, b) => a.title.localeCompare(b.title));
   }, [rawLogs]);
 
   // Unique list of dates in YYYY-MM-DD format
@@ -311,8 +318,10 @@ export default function WorkoutDashboard() {
     if (selectedExerciseId === "all") {
       return logs;
     }
-    return logs.filter((r) => (r.work_id || r.title) === selectedExerciseId);
-  }, [logs, selectedExerciseId]);
+    const targetEx = exercisesList.find((e) => e.work_id === selectedExerciseId);
+    if (!targetEx) return [];
+    return logs.filter((r) => (r.title || r.work_id) === targetEx.title);
+  }, [logs, selectedExerciseId, exercisesList]);
 
   const activeExercise = useMemo(() => {
     return exercisesList.find((e) => e.work_id === selectedExerciseId) || { title: "Overall", muscle_group: "Multiple" };
@@ -430,7 +439,7 @@ export default function WorkoutDashboard() {
       return { slope, slopePct };
     } else {
       const slopes = exercisesList.map(ex => {
-        const exLogs = logs.filter(r => (r.work_id || r.title) === ex.work_id && new Date(r.completed_at) <= anchorDate);
+        const exLogs = logs.filter(r => (r.title || r.work_id) === ex.title && new Date(r.completed_at) <= anchorDate);
         const series = buildOneRmSeries(exLogs, false).filter(p => new Date(p.rawDate) >= cutoff);
         const slope = linregSlope(series.map((p, i) => ({ x: i, y: p.oneRm })));
         const start1Rm = series.length ? series[0].oneRm : 0;
