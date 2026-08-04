@@ -1133,7 +1133,27 @@ export default function WorkoutDashboard() {
                 {/* ACWR Chart */}
                 <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0">
                   <h2 className="text-sm font-semibold mb-1">Training Load — Acute:Chronic Workload Ratio</h2>
-                  <p className="text-xs text-[#8A919C] mb-4">Volume vs trailing 4-week moving average</p>
+                  <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                    <p className="text-xs text-[#8A919C]">Volume vs trailing 4-week moving average</p>
+                    <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+                      <div className="flex items-center gap-1.5 text-[10px] text-[#8A919C]">
+                        <span className="w-2.5 h-2.5 rounded bg-[#7FA6FF]/20 border border-[#7FA6FF]/40 inline-block" />
+                        <span>Under-trained (&lt;0.8)</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[10px] text-[#8A919C]">
+                        <span className="w-2.5 h-2.5 rounded bg-[#4FD1C5]/20 border border-[#4FD1C5]/40 inline-block" />
+                        <span>Sweet Spot (0.8 - 1.3)</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[10px] text-[#8A919C]">
+                        <span className="w-2.5 h-2.5 rounded bg-[#F4B740]/25 border border-[#F4B740]/45 inline-block" />
+                        <span>Caution (1.3 - 1.5)</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[10px] text-[#8A919C]">
+                        <span className="w-2.5 h-2.5 rounded bg-[#EF7B57]/25 border border-[#EF7B57]/45 inline-block" />
+                        <span>Danger Zone (&gt;1.5)</span>
+                      </div>
+                    </div>
+                  </div>
                   <ResponsiveContainer width="100%" height={200}>
                     <LineChart data={visibleWeeklyStats.filter(w => w.date).map((w) => ({ ...w, label: fmtDate(w.date) }))} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                       <CartesianGrid stroke="#1E222A" vertical={false} />
