@@ -750,9 +750,19 @@ export default function WorkoutDashboard() {
     };
   }, [musclePriorities.recommended, rawLogs, currentAcwr]);
 
-  // 6. LLM Coaching integration
+  // 6. LLM Coaching integration with rate-limit loop prevention
+  const recommendedMuscleName = musclePriorities.recommended?.muscle;
+  const isMuscleRecovered = musclePriorities.recommended?.isRecovered;
+  const isPlateaued = plateauStatus.isPlateaued;
+  const plateauSessions = plateauStatus.sessionsFlat;
+  const injuryRiskLevel = injuryRiskFlag.level;
+  const exerciseName = fatigueInfo?.exerciseName;
+  const lastWeight = fatigueInfo?.lastWeight;
+  const lastReps = fatigueInfo?.lastReps;
+  const fatigueLevel = fatigueInfo?.fatigueLevel;
+
   useEffect(() => {
-    if (!fatigueInfo || !musclePriorities.recommended) {
+    if (!fatigueInfo || !recommendedMuscleName) {
       setAiCoaching(null);
       return;
     }
@@ -766,17 +776,17 @@ export default function WorkoutDashboard() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            recommendedMuscle: musclePriorities.recommended.muscle,
-            isRecovered: musclePriorities.recommended.isRecovered,
+            recommendedMuscle: recommendedMuscleName,
+            isRecovered: isMuscleRecovered,
             acwr: currentAcwr,
-            acwrZoneLabel: fatigueInfo.fatigueLevel,
+            acwrZoneLabel: fatigueLevel,
             recentRpeTrend: rpeSeries.slice(-5).map(s => s.rpe),
             plateauStatus,
             injuryRiskFlag,
             lastSession: {
-              exerciseName: fatigueInfo.exerciseName,
-              weight: fatigueInfo.lastWeight,
-              reps: fatigueInfo.lastReps,
+              exerciseName,
+              weight: lastWeight,
+              reps: lastReps,
             },
           }),
         });
@@ -801,12 +811,27 @@ export default function WorkoutDashboard() {
       }
     };
     
-    fetchCoaching();
+    // De-bounce/throttling guard: wait 100ms to confirm no rapid state transitions are occurring
+    const timer = setTimeout(() => {
+      fetchCoaching();
+    }, 100);
     
     return () => {
       active = false;
+      clearTimeout(timer);
     };
-  }, [fatigueInfo, currentAcwr, plateauStatus, injuryRiskFlag]);
+  }, [
+    recommendedMuscleName,
+    isMuscleRecovered,
+    currentAcwr,
+    fatigueLevel,
+    isPlateaued,
+    plateauSessions,
+    injuryRiskLevel,
+    exerciseName,
+    lastWeight,
+    lastReps
+  ]);
 
   const toggleDate = (date) => {
     if (dateFilterMode === "all") {
