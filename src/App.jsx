@@ -190,7 +190,7 @@ export default function WorkoutDashboard() {
     return () => clearInterval(timer);
   }, []);
 
-  const [periodIdx, setPeriodIdx] = useState(2); // Default to 'All'
+  const [periodIdx, setPeriodIdx] = useState(0); // Default to '7D'
   const [selectedExerciseId, setSelectedExerciseId] = useState("all");
   const [showSetup, setShowSetup] = useState(false);
   const [exOpen, setExOpen] = useState(false);
