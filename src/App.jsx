@@ -810,6 +810,8 @@ export default function WorkoutDashboard() {
               weight: lastWeight,
               reps: lastReps,
             },
+            fullyRecoveredMuscles: musclePriorities.fullyRecovered.map(m => m.muscle),
+            recoveringMuscles: musclePriorities.recovering.map(m => m.muscle),
           }),
         });
         
@@ -1507,15 +1509,28 @@ export default function WorkoutDashboard() {
                       
                       {musclePriorities.recommended ? (
                         <div className="space-y-3">
-                          <div className="bg-[#0C0E12] rounded-lg border border-[#232830] p-3 flex items-center justify-between">
-                            <div>
-                              <span className="text-[10px] uppercase tracking-wider text-[#8A919C] block">Target Muscle Group</span>
-                              <span className="text-xl font-semibold text-[#F4B740]" style={{ fontFamily: "'Oswald', sans-serif" }}>
-                                {musclePriorities.recommended.muscle.toUpperCase()}
-                              </span>
+                          <div className="bg-[#0C0E12] rounded-lg border border-[#232830] p-3 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <span className="text-[10px] uppercase tracking-wider text-[#8A919C] block">Target Muscle Group</span>
+                                <span className="text-xl font-semibold text-[#F4B740]" style={{ fontFamily: "'Oswald', sans-serif" }}>
+                                  {musclePriorities.recommended.muscle.toUpperCase()}
+                                </span>
+                              </div>
+                              <div className="px-3 py-1 rounded text-xs font-semibold bg-[#4FD1C5]/10 text-[#4FD1C5] border border-[#4FD1C5]/30">
+                                {musclePriorities.recommended.isRecovered ? "Ready" : "Recovering"}
+                              </div>
                             </div>
-                            <div className="px-3 py-1 rounded text-xs font-semibold bg-[#4FD1C5]/10 text-[#4FD1C5] border border-[#4FD1C5]/30">
-                              {musclePriorities.recommended.isRecovered ? "Ready" : "Recovering"}
+                            
+                            <div className="border-t border-[#232830]/50 pt-2.5 space-y-1">
+                              <span className="text-[10px] uppercase tracking-wider text-[#8A919C] block">Recommended Workout Split</span>
+                              {aiCoachingLoading ? (
+                                <div className="h-4 bg-[#8A919C]/20 rounded w-2/3 animate-pulse" />
+                              ) : (
+                                <span className="text-xs font-medium text-[#E7E9EC] block">
+                                  {aiCoaching?.recommendedSplit || `${musclePriorities.recommended.muscle.charAt(0).toUpperCase() + musclePriorities.recommended.muscle.slice(1)} Focus Session`}
+                                </span>
+                              )}
                             </div>
                           </div>
                           

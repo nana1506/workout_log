@@ -22,6 +22,8 @@ export default async function handler(req, res) {
             plateauStatus,       // { isPlateaued, sessionsFlat }
             injuryRiskFlag,      // { level, reason }
             lastSession,         // { exerciseName, weight, reps }
+            fullyRecoveredMuscles,
+            recoveringMuscles,
         } = req.body;
 
         if (!recommendedMuscle || !lastSession) {
@@ -29,9 +31,11 @@ export default async function handler(req, res) {
         }
 
         const prompt = `You are a strength-training coach reviewing a lifter's recent data.
-Give a short, direct coaching recommendation based on these signals:
+Give a short, direct coaching recommendation and suggest a workout muscle split based on these signals:
 
-- Recommended muscle group to train next: ${recommendedMuscle} (${isRecovered ? 'fully recovered' : 'still recovering'})
+- Primary recommended muscle group to train next: ${recommendedMuscle} (${isRecovered ? 'fully recovered' : 'still recovering'})
+- Fully recovered muscle groups available: ${JSON.stringify(fullyRecoveredMuscles || [])}
+- Currently recovering muscle groups (avoid training unless active recovery): ${JSON.stringify(recoveringMuscles || [])}
 - Acute:Chronic Workload Ratio: ${acwr} (${acwrZoneLabel})
 - Recent RPE trend: ${JSON.stringify(recentRpeTrend)}
 - Plateau status: ${plateauStatus?.isPlateaued ? `flat for ${plateauStatus.sessionsFlat} sessions` : 'progressing normally'}
@@ -41,7 +45,8 @@ Give a short, direct coaching recommendation based on these signals:
 Respond ONLY with valid JSON, no markdown fences, no preamble, in this exact shape:
 {
   "recommendationText": "2-4 sentence coaching recommendation in plain language",
-  "targetRecommendation": "one short line with a specific weight/rep target for the next session"
+  "targetRecommendation": "one short line with a specific weight/rep target for the next session",
+  "recommendedSplit": "A concise suggested muscle group split for today's session (e.g. 'Push (Chest, Shoulders & Triceps)' or 'Pull (Back & Biceps)' or 'Legs & Core' or 'Cardio & Active Recovery') incorporating the primary recommended muscle"
 }`;
 
         const response = await fetch(
@@ -77,7 +82,7 @@ Respond ONLY with valid JSON, no markdown fences, no preamble, in this exact sha
             return res.status(502).json({ error: 'Malformed response from Gemini' });
         }
 
-        if (!parsed.recommendationText || !parsed.targetRecommendation) {
+        if (!parsed.recommendationText || !parsed.targetRecommendation || !parsed.recommendedSplit) {
             return res.status(502).json({ error: 'Incomplete response from Gemini' });
         }
 
