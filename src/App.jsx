@@ -7,8 +7,12 @@ import {
 import {
   Dumbbell, TrendingUp, TrendingDown, Flame, CalendarCheck,
   ChevronDown, Trophy, Database, X, Activity, Rocket, Gauge, Timer, RefreshCw,
-  Brain, CheckCircle2, AlertTriangle, ChevronRight
+  Brain, CheckCircle2, AlertTriangle, ChevronRight, AlertOctagon, Download, ChevronLeft
 } from "lucide-react";
+
+import { getRecoveryHours } from "./utils/recovery";
+import { detectPlateau, detectInjuryRisk } from "./utils/analysis";
+import { exportToCSV } from "./utils/csv";
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -202,6 +206,19 @@ export default function WorkoutDashboard() {
 
   const [sortColumn, setSortColumn] = useState("completed_at");
   const [sortDirection, setSortDirection] = useState("desc");
+
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+
+  // AI Coaching states
+  const [aiCoaching, setAiCoaching] = useState(null);
+  const [aiCoachingLoading, setAiCoachingLoading] = useState(false);
+
+  // Reset pagination on filter/sort changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedExerciseId, dateFilterMode, selectedDates, periodIdx, sortColumn, sortDirection]);
 
   const [rawLogs, setRawLogs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -566,8 +583,9 @@ export default function WorkoutDashboard() {
   }, [tableLogs, sortColumn, sortDirection]);
 
   const recentSets = useMemo(() => {
-    return sortedTableLogs.slice(0, 15);
-  }, [sortedTableLogs]);
+    const start = (currentPage - 1) * pageSize;
+    return sortedTableLogs.slice(start, start + pageSize);
+  }, [sortedTableLogs, currentPage, pageSize]);
 
   // ---- AI Decision Page calculations ----
   
@@ -584,9 +602,7 @@ export default function WorkoutDashboard() {
     if (!latestLog) return null;
 
     const rpe = latestLog.rpe || 7;
-    let restHours = 24;
-    if (rpe >= 8) restHours = 48;
-    else if (rpe >= 6) restHours = 36;
+    const restHours = getRecoveryHours(latestLog.muscle_group, rpe);
 
     const completedTime = new Date(latestLog.completed_at);
     const targetTime = new Date(completedTime.getTime() + restHours * 60 * 60 * 1000);
@@ -626,7 +642,7 @@ export default function WorkoutDashboard() {
     };
   }, [recoveryDetails, now]);
 
-  // 2. Muscle Recovery & Priorities Recommendation
+  // 2. Muscle Recovery & Priorities Recommendation (using per-muscle base recovery times)
   const musclePriorities = useMemo(() => {
     if (!rawLogs.length) return { fullyRecovered: [], recovering: [], recommended: null };
     
@@ -643,8 +659,9 @@ export default function WorkoutDashboard() {
       const hoursSince = (now - lastTrained) / (1000 * 60 * 60);
       const daysSince = Math.round((hoursSince / 24) * 10) / 10;
       
-      const isRecovered = hoursSince >= 48;
-      const hoursRemaining = Math.max(0, 48 - hoursSince);
+      const restHours = getRecoveryHours(muscle, latestMuscleLog.rpe || 7);
+      const isRecovered = hoursSince >= restHours;
+      const hoursRemaining = Math.max(0, restHours - hoursSince);
       
       return {
         muscle,
@@ -652,7 +669,8 @@ export default function WorkoutDashboard() {
         hoursSince,
         daysSince,
         isRecovered,
-        hoursRemaining
+        hoursRemaining,
+        restHours
       };
     });
 
@@ -671,12 +689,27 @@ export default function WorkoutDashboard() {
     };
   }, [rawLogs, now]);
 
-  // 3. AI Prediction Fatigue & Progressive Overload targets
-  const aiDecisionProjections = useMemo(() => {
+  // 3. Plateau Detection
+  const plateauStatus = useMemo(() => {
+    if (selectedExerciseId === "all") {
+      return { isPlateaued: false, sessionsFlat: 0, sinceDate: null };
+    }
+    return detectPlateau(oneRmSeries, 5, 0.015);
+  }, [oneRmSeries, selectedExerciseId]);
+
+  // 4. Injury-Risk Flag
+  const injuryRiskFlag = useMemo(() => {
+    if (selectedExerciseId === "all") {
+      return { level: "none", reason: "" };
+    }
+    return detectInjuryRisk(exerciseFilteredLogs);
+  }, [exerciseFilteredLogs, selectedExerciseId]);
+
+  // 5. Fatigue Info (replaces old aiDecisionProjections)
+  const fatigueInfo = useMemo(() => {
     if (!musclePriorities.recommended) return null;
     
     const recommendedMuscle = musclePriorities.recommended.muscle;
-    
     const muscleLogs = rawLogs.filter(r => r.muscle_group === recommendedMuscle);
     if (!muscleLogs.length) return null;
     
@@ -707,36 +740,73 @@ export default function WorkoutDashboard() {
       fatigueDetails = "Low overall workload. Recovery is full, but stimulus is low. Ready for intense overload.";
     }
     
-    let targetWeight = lastWeight;
-    let targetReps = lastReps;
-    let targetRecommendation = "";
-    
-    if (fatigueLevel === "High Danger Zone") {
-      targetWeight = Math.round((lastWeight * 0.7) * 2) / 2;
-      targetRecommendation = `Deload Target: ${targetWeight} kg for ${lastReps} reps (reduce intensity to promote recovery).`;
-    } else if (fatigueLevel === "Caution/Elevated") {
-      targetRecommendation = `Hold Target: ${lastWeight} kg for ${lastReps} reps (focus on form, avoid adding weight to prevent fatigue accumulation).`;
-    } else {
-      const suggestedWeight = Math.round((lastWeight * 1.025) * 2) / 2;
-      if (suggestedWeight > lastWeight) {
-        targetWeight = suggestedWeight;
-        targetRecommendation = `Overload Target: Increase weight to ${targetWeight} kg for ${lastReps} reps (or stay at ${lastWeight} kg for ${lastReps + 1} reps).`;
-      } else {
-        targetReps = lastReps + 1;
-        targetRecommendation = `Overload Target: Stay at ${lastWeight} kg and aim for ${targetReps} reps (progressive overload via volume).`;
-      }
-    }
-    
     return {
       exerciseName,
       lastWeight,
       lastReps,
       fatigueLevel,
       fatigueColor,
-      fatigueDetails,
-      targetRecommendation
+      fatigueDetails
     };
   }, [musclePriorities.recommended, rawLogs, currentAcwr]);
+
+  // 6. LLM Coaching integration
+  useEffect(() => {
+    if (!fatigueInfo || !musclePriorities.recommended) {
+      setAiCoaching(null);
+      return;
+    }
+    
+    let active = true;
+    
+    const fetchCoaching = async () => {
+      setAiCoachingLoading(true);
+      try {
+        const response = await fetch("/api/coaching-recommendation", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            recommendedMuscle: musclePriorities.recommended.muscle,
+            isRecovered: musclePriorities.recommended.isRecovered,
+            acwr: currentAcwr,
+            acwrZoneLabel: fatigueInfo.fatigueLevel,
+            recentRpeTrend: rpeSeries.slice(-5).map(s => s.rpe),
+            plateauStatus,
+            injuryRiskFlag,
+            lastSession: {
+              exerciseName: fatigueInfo.exerciseName,
+              weight: fatigueInfo.lastWeight,
+              reps: fatigueInfo.lastReps,
+            },
+          }),
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Server returned status ${response.status}`);
+        }
+        
+        const data = await response.json();
+        if (active) {
+          setAiCoaching(data);
+        }
+      } catch (err) {
+        console.error("Failed to load AI coaching recommendation:", err);
+        if (active) {
+          setAiCoaching(null);
+        }
+      } finally {
+        if (active) {
+          setAiCoachingLoading(false);
+        }
+      }
+    };
+    
+    fetchCoaching();
+    
+    return () => {
+      active = false;
+    };
+  }, [fatigueInfo, currentAcwr, plateauStatus, injuryRiskFlag]);
 
   const toggleDate = (date) => {
     if (dateFilterMode === "all") {
@@ -961,6 +1031,12 @@ export default function WorkoutDashboard() {
               <RefreshCw size={13} /> Refresh
             </button>
             <button
+              onClick={() => exportToCSV(sortedTableLogs, selectedExerciseId === "all" ? "all-workouts" : activeExercise.title)}
+              className="flex items-center gap-1.5 text-xs text-[#8A919C] border border-[#232830] hover:border-[#3A414C] bg-[#15181D] rounded-lg px-3 py-2 transition-colors"
+            >
+              <Download size={13} /> Export CSV
+            </button>
+            <button
               onClick={() => setShowSetup(true)}
               className="flex items-center gap-1.5 text-xs text-[#8A919C] border border-[#232830] hover:border-[#3A414C] bg-[#15181D] rounded-lg px-3 py-2 transition-colors"
             >
@@ -1090,8 +1166,17 @@ export default function WorkoutDashboard() {
                 </div>
 
                 {/* 1RM Trend */}
-                <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0">
-                  <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0 space-y-3">
+                  {plateauStatus.isPlateaued && (
+                    <div className="rounded-lg border border-[#F4B740]/30 bg-[#F4B740]/5 p-3 flex items-start gap-2 text-xs text-[#F4B740] transition-all">
+                      <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-semibold block">Training Plateau Detected</span>
+                        No meaningful change in estimated 1RM has been achieved in the last {plateauStatus.sessionsFlat} sessions (since {fmtDate(plateauStatus.sinceDate)}). Consider altering your rep ranges or exercise variation to break the adaptation.
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <h2 className="text-sm font-semibold">Progressive Overload — Est. 1RM</h2>
                       <p className="text-xs text-[#8A919C]">
@@ -1225,6 +1310,49 @@ export default function WorkoutDashboard() {
                         ))}
                       </tbody>
                     </table>
+                  </div>
+
+                  {/* Pagination Controls */}
+                  <div className="flex flex-wrap items-center justify-between gap-4 border-t border-[#232830] pt-4 mt-4 text-xs text-[#8A919C] transition-all">
+                    <div className="flex items-center gap-1.5">
+                      <span>Rows per page:</span>
+                      <select
+                        value={pageSize}
+                        onChange={(e) => {
+                          setPageSize(Number(e.target.value));
+                          setCurrentPage(1);
+                        }}
+                        className="bg-[#15181D] border border-[#232830] rounded px-1.5 py-1 text-xs text-[#E7E9EC] focus:ring-0 focus:outline-none cursor-pointer"
+                      >
+                        <option value={15}>15</option>
+                        <option value={25}>25</option>
+                        <option value={50}>50</option>
+                      </select>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span>
+                        Showing {sortedTableLogs.length === 0 ? 0 : (currentPage - 1) * pageSize + 1} -{" "}
+                        {Math.min(currentPage * pageSize, sortedTableLogs.length)} of {sortedTableLogs.length}
+                      </span>
+                      
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                          disabled={currentPage === 1}
+                          className="p-1 rounded bg-[#1B1F26] border border-[#232830] hover:bg-[#232830] hover:text-[#E7E9EC] disabled:opacity-40 disabled:hover:bg-[#1B1F26] disabled:hover:text-[#8A919C] transition-colors"
+                        >
+                          <ChevronLeft size={14} />
+                        </button>
+                        <button
+                          onClick={() => setCurrentPage(prev => Math.min(Math.ceil(sortedTableLogs.length / pageSize), prev + 1))}
+                          disabled={currentPage >= Math.ceil(sortedTableLogs.length / pageSize)}
+                          className="p-1 rounded bg-[#1B1F26] border border-[#232830] hover:bg-[#232830] hover:text-[#E7E9EC] disabled:opacity-40 disabled:hover:bg-[#1B1F26] disabled:hover:text-[#8A919C] transition-colors"
+                        >
+                          <ChevronRight size={14} />
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </>
@@ -1381,7 +1509,7 @@ export default function WorkoutDashboard() {
                 </div>
 
                 {/* Card 3: AI Projections & Overload Targets */}
-                {aiDecisionProjections ? (
+                {fatigueInfo ? (
                   <div className="rounded-xl border border-[#232830] bg-[#15181D] p-5 space-y-4">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] uppercase tracking-wider text-[#8A919C]">AI Fatigue &amp; Overload Projection</span>
@@ -1390,40 +1518,60 @@ export default function WorkoutDashboard() {
 
                     <div className="grid md:grid-cols-2 gap-4">
                       {/* Fatigue Predictor */}
-                      <div className="bg-[#0C0E12] rounded-lg border border-[#232830] p-4 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] text-[#8A919C] font-semibold">Predicted Fatigue Level</span>
-                          <span 
-                            className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider" 
-                            style={{ 
-                              background: `${aiDecisionProjections.fatigueColor}22`, 
-                              color: aiDecisionProjections.fatigueColor,
-                              border: `1px solid ${aiDecisionProjections.fatigueColor}40`
-                            }}
-                          >
-                            {aiDecisionProjections.fatigueLevel}
-                          </span>
+                      <div className="bg-[#0C0E12] rounded-lg border border-[#232830] p-4 flex flex-col justify-between space-y-2">
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[11px] text-[#8A919C] font-semibold">Predicted Fatigue Level</span>
+                            <span 
+                              className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider" 
+                              style={{ 
+                                background: `${fatigueInfo.fatigueColor}22`, 
+                                color: fatigueInfo.fatigueColor,
+                                border: `1px solid ${fatigueInfo.fatigueColor}40`
+                              }}
+                            >
+                              {fatigueInfo.fatigueLevel}
+                            </span>
+                          </div>
+                          <p className="text-xs text-[#8A919C] leading-relaxed">
+                            {fatigueInfo.fatigueDetails}
+                          </p>
                         </div>
-                        <p className="text-xs text-[#8A919C] leading-relaxed">
-                          {aiDecisionProjections.fatigueDetails}
-                        </p>
+                        {injuryRiskFlag && injuryRiskFlag.level !== "none" && (
+                          <div className="rounded border border-[#EF7B57]/30 bg-[#EF7B57]/5 p-2 flex items-start gap-1.5 text-[11px] text-[#EF7B57] transition-all">
+                            <AlertOctagon size={13} className="shrink-0 mt-0.5" />
+                            <div>
+                              <span className="font-semibold block uppercase tracking-wider text-[9px] text-[#EF7B57]/90">
+                                {injuryRiskFlag.level === "elevated" ? "Elevated Injury Risk" : "Injury Watch"}
+                              </span>
+                              {injuryRiskFlag.reason}
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* Progressive Overload Projections */}
                       <div className="bg-[#0C0E12] rounded-lg border border-[#232830] p-4 space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="text-[11px] text-[#8A919C] font-semibold">Next Target Exercise</span>
-                          <span className="text-[#E7E9EC] text-[11px] font-medium font-mono">{aiDecisionProjections.exerciseName}</span>
+                          <span className="text-[#E7E9EC] text-[11px] font-medium font-mono">{fatigueInfo.exerciseName}</span>
                         </div>
                         <div className="text-xs space-y-1 text-[#8A919C]">
                           <div className="flex justify-between">
                             <span>Last Logged Session:</span>
-                            <span className="text-[#E7E9EC] font-semibold font-mono">{aiDecisionProjections.lastWeight} kg x {aiDecisionProjections.lastReps} reps</span>
+                            <span className="text-[#E7E9EC] font-semibold font-mono">{fatigueInfo.lastWeight} kg x {fatigueInfo.lastReps} reps</span>
                           </div>
                           <div className="pt-2 border-t border-[#232830] mt-2">
-                            <span className="text-[#F4B740] font-semibold flex items-center gap-1">
-                              <Rocket size={13} /> {aiDecisionProjections.targetRecommendation}
-                            </span>
+                            {aiCoachingLoading ? (
+                              <div className="flex items-center gap-1.5 text-[#F4B740] animate-pulse">
+                                <span className="w-3.5 h-3.5 rounded-full border-2 border-t-transparent border-[#F4B740] animate-spin inline-block shrink-0" />
+                                <span>Generating AI targets...</span>
+                              </div>
+                            ) : (
+                              <span className="text-[#F4B740] font-semibold flex items-center gap-1">
+                                <Rocket size={13} /> {aiCoaching?.targetRecommendation || `Repeat last session: ${fatigueInfo.lastWeight} kg x ${fatigueInfo.lastReps} reps`}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1432,15 +1580,19 @@ export default function WorkoutDashboard() {
                     <div className="bg-[#F4B740]/5 rounded-lg border border-[#F4B740]/20 p-4">
                       <div className="flex gap-2">
                         <Rocket size={16} className="text-[#F4B740] shrink-0 mt-0.5" />
-                        <div className="space-y-1">
-                          <span className="text-xs font-semibold text-[#F4B740]">AI Growth Recommendation</span>
-                          <p className="text-xs text-[#8A919C] leading-relaxed">
-                            {musclePriorities.recommended && musclePriorities.recommended.isRecovered ? (
-                              `Since your ${musclePriorities.recommended.muscle} group is fully recovered and fatigue remains optimal, today is the ideal time to focus on progressive overload. Apply the suggested overload target for ${aiDecisionProjections.exerciseName} to ensure steady strength progression.`
-                            ) : (
-                              "Your body is currently in an active state of recovery. If you must train today, focus on light recovery movement, stretching, or low-intensity cardio to assist with muscle repair."
-                            )}
-                          </p>
+                        <div className="space-y-1 w-full">
+                          <span className="text-xs font-semibold text-[#F4B740] block">AI Growth Recommendation</span>
+                          {aiCoachingLoading ? (
+                            <div className="space-y-1.5 py-1.5 animate-pulse w-full">
+                              <div className="h-3 bg-[#8A919C]/20 rounded w-full" />
+                              <div className="h-3 bg-[#8A919C]/20 rounded w-11/12" />
+                              <div className="h-3 bg-[#8A919C]/20 rounded w-3/4" />
+                            </div>
+                          ) : (
+                            <p className="text-xs text-[#8A919C] leading-relaxed">
+                              {aiCoaching?.recommendationText || fatigueInfo.fatigueDetails}
+                            </p>
+                          )}
                         </div>
                       </div>
                     </div>
