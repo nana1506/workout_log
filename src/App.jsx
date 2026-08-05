@@ -232,6 +232,10 @@ export default function WorkoutDashboard() {
   const [aiCoaching, setAiCoaching] = useState(null);
   const [aiCoachingLoading, setAiCoachingLoading] = useState(false);
 
+  // AI Block Assessment states
+  const [blockAssessment, setBlockAssessment] = useState(null);
+  const [blockAssessmentLoading, setBlockAssessmentLoading] = useState(false);
+
   // Reset pagination on filter/sort changes
   useEffect(() => {
     setCurrentPage(1);
@@ -301,6 +305,8 @@ export default function WorkoutDashboard() {
     const dates = rawLogs.map((r) => r.completed_at?.slice(0, 10)).filter(Boolean);
     return [...new Set(dates)].sort().reverse();
   }, [rawLogs]);
+
+  const dailyFatigueMap = useMemo(() => buildDailyFatigueMap(rawLogs), [rawLogs]);
 
   // Set default selected exercise once data loads
   useEffect(() => {
@@ -880,6 +886,114 @@ export default function WorkoutDashboard() {
     lastReps
   ]);
 
+  // ---- Block Suggestions calculation and API call ----
+  const consecutivePlateauCount = useMemo(() => {
+    if (!recommendedOneRmSeries || recommendedOneRmSeries.length < 5) return 0;
+    let count = 0;
+    for (let i = 0; i < 3; i++) {
+      const slice = i === 0 ? recommendedOneRmSeries : recommendedOneRmSeries.slice(0, -i);
+      const plat = detectPlateau(slice, 5, 0.015);
+      if (plat.isPlateaued) {
+        count++;
+      } else {
+        break;
+      }
+    }
+    return count;
+  }, [recommendedOneRmSeries]);
+
+  const recentInjuryRiskCount = useMemo(() => {
+    if (!recommendedExerciseLogs || recommendedExerciseLogs.length === 0) return 0;
+    
+    // Group logs by date
+    const dates = [...new Set(recommendedExerciseLogs.map(r => r.completed_at?.slice(0, 10)).filter(Boolean))].sort();
+    if (dates.length < 3) return 0;
+    
+    let watchOrElevatedCount = 0;
+    for (let i = 0; i < 3; i++) {
+      const activeDates = dates.slice(0, dates.length - i);
+      const filteredLogs = recommendedExerciseLogs.filter(r => activeDates.includes(r.completed_at?.slice(0, 10)));
+      const risk = detectInjuryRisk(filteredLogs);
+      if (risk.level === 'watch' || risk.level === 'elevated') {
+        watchOrElevatedCount++;
+      }
+    }
+    return watchOrElevatedCount;
+  }, [recommendedExerciseLogs]);
+
+  const weeksSinceDeload = useMemo(() => {
+    if (!weeklyStats || weeklyStats.length === 0) return null;
+    const reversed = [...weeklyStats].reverse();
+    const deloadIdx = reversed.findIndex(w => w.isDeload);
+    return deloadIdx === -1 ? null : deloadIdx;
+  }, [weeklyStats]);
+
+  const blockContext = useMemo(() => {
+    const last4Weeks = weeklyStats.slice(-4);
+    const acwrTrajectory = last4Weeks.map(w => ({
+      weekIndex: w.weekIndex,
+      acwr: w.acwr,
+      volume: w.volume,
+      isDeload: w.isDeload,
+      date: w.date
+    }));
+    
+    return {
+      acwrTrajectory,
+      consecutivePlateaus: consecutivePlateauCount,
+      recentInjuryRisks: recentInjuryRiskCount,
+      weeksSinceDeload: weeksSinceDeload,
+      recommendedMuscle: fatigueInfo?.exerciseName || "Overall",
+    };
+  }, [weeklyStats, consecutivePlateauCount, recentInjuryRiskCount, weeksSinceDeload, fatigueInfo]);
+
+  useEffect(() => {
+    if (!blockContext || weeklyStats.length < 3) {
+      setBlockAssessment(null);
+      return;
+    }
+
+    let active = true;
+
+    const fetchBlockAssessment = async () => {
+      setBlockAssessmentLoading(true);
+      try {
+        const response = await fetch("/api/block-assessment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(blockContext),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Server returned status ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (active) {
+          setBlockAssessment(data);
+        }
+      } catch (err) {
+        console.error("Failed to load AI block assessment:", err);
+        if (active) {
+          setBlockAssessment(null);
+        }
+      } finally {
+        if (active) {
+          setBlockAssessmentLoading(false);
+        }
+      }
+    };
+
+    const timer = setTimeout(() => {
+      fetchBlockAssessment();
+    }, 200);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [blockContext, weeklyStats.length]);
+
   const toggleDate = (date) => {
     if (dateFilterMode === "all") {
       setDateFilterMode("custom");
@@ -1437,6 +1551,8 @@ export default function WorkoutDashboard() {
                     </div>
                   </div>
                 </div>
+
+                <TrainingCalendarHeatmap data={dailyFatigueMap} anchorDate={anchorDate} />
               </>
             )}
 
@@ -1602,6 +1718,66 @@ export default function WorkoutDashboard() {
                     </div>
                   </div>
                 </div>
+
+                {/* AI Block Assessment Status */}
+                {blockAssessmentLoading ? (
+                  <div className="rounded-xl border border-[#232830] bg-[#15181D] p-5 space-y-3 animate-pulse">
+                    <div className="flex items-center justify-between">
+                      <div className="h-4 bg-[#8A919C]/20 rounded w-1/3" />
+                      <div className="w-4 h-4 rounded bg-[#8A919C]/20" />
+                    </div>
+                    <div className="h-4 bg-[#8A919C]/20 rounded w-2/3" />
+                    <div className="h-10 bg-[#8A919C]/20 rounded w-full" />
+                  </div>
+                ) : blockAssessment ? (
+                  <div className={`rounded-xl border p-5 space-y-4 transition-all duration-300 ${
+                    blockAssessment.deloadRecommended
+                      ? "border-[#F4B740] bg-[#15181D] shadow-lg shadow-[#F4B740]/5"
+                      : "border-[#232830] bg-[#15181D]"
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] uppercase tracking-wider text-[#8A919C]">Training Block Status</span>
+                      <Flame size={16} className={blockAssessment.deloadRecommended ? "text-[#F4B740]" : "text-[#8A919C]"} />
+                    </div>
+
+                    <div className="space-y-3">
+                      <div>
+                        <span className="text-[10px] uppercase tracking-wider text-[#8A919C] block">Current Phase Assessment</span>
+                        <span className={`text-base font-semibold block ${blockAssessment.deloadRecommended ? "text-[#F4B740]" : "text-[#E7E9EC]"}`} style={{ fontFamily: "'Oswald', sans-serif" }}>
+                          {blockAssessment.phaseAssessment.toUpperCase()}
+                        </span>
+                      </div>
+
+                      {blockAssessment.deloadRecommended ? (
+                        <div className="rounded-lg border border-[#F4B740]/30 bg-[#F4B740]/5 p-3.5 space-y-2">
+                          <div className="flex items-center gap-1.5 text-xs text-[#F4B740] font-semibold">
+                            <AlertTriangle size={15} />
+                            <span>DELOAD RECOMMENDED</span>
+                          </div>
+                          <div className="text-xs text-[#8A919C] space-y-1">
+                            <p className="leading-relaxed">
+                              <strong className="text-[#E7E9EC]">Recommended Window: </strong> 
+                              <span className="text-[#F4B740] font-semibold">{blockAssessment.deloadWindow}</span>
+                            </p>
+                            <p className="leading-relaxed font-mono text-[11px]">
+                              {blockAssessment.reasoning}
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-[#4FD1C5]/20 bg-[#4FD1C5]/5 p-3.5 space-y-1">
+                          <div className="flex items-center gap-1.5 text-xs text-[#4FD1C5] font-semibold">
+                            <CheckCircle2 size={15} />
+                            <span>BLOCK PROGRESSING NORMALLY</span>
+                          </div>
+                          <p className="text-xs text-[#8A919C] leading-relaxed">
+                            {blockAssessment.reasoning}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
 
                 {/* Card 3: AI Projections & Overload Targets */}
                 {fatigueInfo ? (
