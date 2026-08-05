@@ -992,7 +992,7 @@ export default function WorkoutDashboard() {
       active = false;
       clearTimeout(timer);
     };
-  }, [blockContext, weeklyStats.length]);
+  }, [JSON.stringify(blockContext), weeklyStats.length]);
 
   const toggleDate = (date) => {
     if (dateFilterMode === "all") {

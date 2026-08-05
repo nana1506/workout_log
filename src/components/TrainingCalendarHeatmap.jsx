@@ -1,5 +1,5 @@
-import React, { useMemo } from "react";
-import { Flame, Calendar, Activity } from "lucide-react";
+import React, { useState, useMemo } from "react";
+import { Flame, Calendar } from "lucide-react";
 
 // Helper to find Monday of the week containing a date
 const getMonday = (d) => {
@@ -21,8 +21,10 @@ const formatDateStr = (date) => {
 
 export default function TrainingCalendarHeatmap({ data = {}, anchorDate = new Date() }) {
   const WEEKS_TO_SHOW = 16;
-  const DAYS_OF_WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  // State to track hovered cell details and viewport coordinates
+  const [hoveredCell, setHoveredCell] = useState(null);
 
   // Generate grid structure: 16 weeks, Monday to Sunday
   const { weeks, monthLabels } = useMemo(() => {
@@ -70,6 +72,22 @@ export default function TrainingCalendarHeatmap({ data = {}, anchorDate = new Da
     moderate: "Moderate Load",
     high: "High Load",
     "very-high": "Very High Load",
+  };
+
+  const handleMouseEnter = (e, dayDate, dayData) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setHoveredCell({
+      date: formatDateStr(dayDate),
+      dayDate,
+      level: dayData ? dayData.level : "rest",
+      data: dayData,
+      x: rect.left + rect.width / 2,
+      y: rect.top,
+    });
+  };
+
+  const handleMouseLeave = () => {
+    setHoveredCell(null);
   };
 
   return (
@@ -135,84 +153,13 @@ export default function TrainingCalendarHeatmap({ data = {}, anchorDate = new Da
                     const cellColor = levelColors[level];
 
                     return (
-                      <div key={dIdx} className="relative group">
+                      <div key={dIdx} className="relative">
                         {/* Cell Grid Box */}
                         <div
+                          onMouseEnter={(e) => handleMouseEnter(e, dayDate, dayData)}
+                          onMouseLeave={handleMouseLeave}
                           className={`w-4 h-4 rounded-sm transition-all duration-150 cursor-pointer ${cellColor}`}
                         />
-
-                        {/* Premium custom tooltip on hover */}
-                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 hidden group-hover:block z-40 pointer-events-none">
-                          <div className="rounded-lg border border-[#2A2F38] bg-[#1B1F26] p-3 text-[11px] shadow-xl w-60 space-y-2 relative">
-                            {/* Arrow */}
-                            <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-8 border-transparent border-t-[#1B1F26] w-0 h-0" />
-                            
-                            <div className="flex items-center justify-between border-b border-[#2A2F38] pb-1">
-                              <span className="text-[#E7E9EC] font-semibold">
-                                {dayDate.toLocaleDateString("en-US", {
-                                  weekday: "short",
-                                  month: "short",
-                                  day: "numeric",
-                                })}
-                              </span>
-                              <span
-                                className={`px-1.5 py-0.5 rounded-[3px] text-[9px] font-medium tracking-wide uppercase ${
-                                  level === "rest"
-                                    ? "bg-[#15181D] text-[#8A919C] border border-[#232830]"
-                                    : level === "light"
-                                    ? "bg-[#4FD1C5]/10 text-[#4FD1C5]"
-                                    : level === "moderate"
-                                    ? "bg-[#F4B740]/10 text-[#F4B740]"
-                                    : level === "high"
-                                    ? "bg-[#EF7B57]/10 text-[#EF7B57]"
-                                    : "bg-red-500/10 text-red-500"
-                                }`}
-                              >
-                                {levelLabels[level]}
-                              </span>
-                            </div>
-
-                            {level === "rest" ? (
-                              <p className="text-[#8A919C] italic">No training logged. Rest day.</p>
-                            ) : (
-                              <div className="space-y-1 text-[#8A919C]">
-                                <div className="flex justify-between">
-                                  <span>Total Volume:</span>
-                                  <span className="text-[#E7E9EC] font-bold font-mono">
-                                    {dayData.volume.toLocaleString()} kg
-                                  </span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span>Sets Count:</span>
-                                  <span className="text-[#E7E9EC] font-bold font-mono">
-                                    {dayData.setCount} sets
-                                  </span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span>Average RPE:</span>
-                                  <span className="text-[#E7E9EC] font-bold font-mono">
-                                    {dayData.avgRpe ?? "N/A"}
-                                  </span>
-                                </div>
-                                <div className="pt-1.5 border-t border-[#2A2F38] mt-1.5">
-                                  <span className="block text-[9px] uppercase tracking-wider text-[#E7E9EC]/70 mb-1">
-                                    Exercises Trained:
-                                  </span>
-                                  <div className="flex flex-wrap gap-1">
-                                    {dayData.exercises.map((ex, idx) => (
-                                      <span
-                                        key={idx}
-                                        className="bg-[#0C0E12] border border-[#232830] text-[#E7E9EC] px-1 py-0.5 rounded text-[9px]"
-                                      >
-                                        {ex}
-                                      </span>
-                                    ))}
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
                       </div>
                     );
                   })}
@@ -236,6 +183,88 @@ export default function TrainingCalendarHeatmap({ data = {}, anchorDate = new Da
         </div>
         <span>Hover cells for details</span>
       </div>
+
+      {/* Fixed tooltip rendered outside the scrollable container */}
+      {hoveredCell && (
+        <div
+          className="fixed z-50 pointer-events-none"
+          style={{
+            left: `${hoveredCell.x}px`,
+            top: `${hoveredCell.y}px`,
+            transform: "translate(-50%, -105%)",
+          }}
+        >
+          <div className="rounded-lg border border-[#2A2F38] bg-[#1B1F26] p-3 text-[11px] shadow-xl w-60 space-y-2 relative">
+            {/* Tooltip Arrow */}
+            <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-8 border-transparent border-t-[#1B1F26] w-0 h-0" />
+
+            <div className="flex items-center justify-between border-b border-[#2A2F38] pb-1">
+              <span className="text-[#E7E9EC] font-semibold">
+                {hoveredCell.dayDate.toLocaleDateString("en-US", {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                })}
+              </span>
+              <span
+                className={`px-1.5 py-0.5 rounded-[3px] text-[9px] font-medium tracking-wide uppercase ${
+                  hoveredCell.level === "rest"
+                    ? "bg-[#15181D] text-[#8A919C] border border-[#232830]"
+                    : hoveredCell.level === "light"
+                    ? "bg-[#4FD1C5]/10 text-[#4FD1C5]"
+                    : hoveredCell.level === "moderate"
+                    ? "bg-[#F4B740]/10 text-[#F4B740]"
+                    : hoveredCell.level === "high"
+                    ? "bg-[#EF7B57]/10 text-[#EF7B57]"
+                    : "bg-red-500/10 text-red-500"
+                }`}
+              >
+                {levelLabels[hoveredCell.level]}
+              </span>
+            </div>
+
+            {hoveredCell.level === "rest" ? (
+              <p className="text-[#8A919C] italic">No training logged. Rest day.</p>
+            ) : (
+              <div className="space-y-1 text-[#8A919C]">
+                <div className="flex justify-between">
+                  <span>Total Volume:</span>
+                  <span className="text-[#E7E9EC] font-bold font-mono">
+                    {hoveredCell.data.volume.toLocaleString()} kg
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Sets Count:</span>
+                  <span className="text-[#E7E9EC] font-bold font-mono">
+                    {hoveredCell.data.setCount} sets
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Average RPE:</span>
+                  <span className="text-[#E7E9EC] font-bold font-mono">
+                    {hoveredCell.data.avgRpe ?? "N/A"}
+                  </span>
+                </div>
+                <div className="pt-1.5 border-t border-[#2A2F38] mt-1.5">
+                  <span className="block text-[9px] uppercase tracking-wider text-[#E7E9EC]/70 mb-1">
+                    Exercises Trained:
+                  </span>
+                  <div className="flex flex-wrap gap-1">
+                    {hoveredCell.data.exercises.map((ex, idx) => (
+                      <span
+                        key={idx}
+                        className="bg-[#0C0E12] border border-[#232830] text-[#E7E9EC] px-1 py-0.5 rounded text-[9px]"
+                      >
+                        {ex}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
