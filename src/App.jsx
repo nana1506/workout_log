@@ -7,16 +7,17 @@ import {
 import {
   Dumbbell, TrendingUp, TrendingDown, Flame, CalendarCheck,
   ChevronDown, Trophy, Database, X, Activity, Rocket, Gauge, Timer, RefreshCw,
-  Brain, CheckCircle2, AlertTriangle, ChevronRight, AlertOctagon, Download, ChevronLeft
+  Brain, CheckCircle2, AlertTriangle, ChevronRight, AlertOctagon, Download, ChevronLeft, Scale
 } from "lucide-react";
 
 import { getRecoveryHours } from "./utils/recovery";
 import { detectPlateau, detectInjuryRisk } from "./utils/analysis";
 import { exportToCSV } from "./utils/csv";
+import BodyCompositionTab from "./components/BodyCompositionTab";
 
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
+export const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
   import.meta.env.VITE_SUPABASE_ANON_KEY
 );
@@ -26,6 +27,20 @@ export async function fetchWorkoutLogs() {
     .from('workout_log')
     .select('*')
     .order('completed_at', { ascending: false });
+
+  if (error) {
+    console.error("Supabase Query Error:", error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+export async function fetchBodyMetrics() {
+  const { data, error } = await supabase
+    .from('body_metrics')
+    .select('*')
+    .order('date', { ascending: false });
 
   if (error) {
     console.error("Supabase Query Error:", error);
@@ -221,6 +236,7 @@ export default function WorkoutDashboard() {
   }, [selectedExerciseId, dateFilterMode, selectedDates, periodIdx, sortColumn, sortDirection]);
 
   const [rawLogs, setRawLogs] = useState([]);
+  const [bodyMetrics, setBodyMetrics] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
 
@@ -228,11 +244,15 @@ export default function WorkoutDashboard() {
     try {
       setLoading(true);
       setErrorMsg(null);
-      const data = await fetchWorkoutLogs();
-      console.log("Raw Supabase Data Loaded:", data);
+      const [logsData, metricsData] = await Promise.all([
+        fetchWorkoutLogs(),
+        fetchBodyMetrics()
+      ]);
+      console.log("Raw Supabase Data Loaded:", logsData);
+      console.log("Raw Body Metrics Loaded:", metricsData);
       
       // Sanitize logs: filter out invalid/empty rows and normalize workout_id
-      const sanitized = (data || [])
+      const sanitized = (logsData || [])
         .filter((r) => r.completed_at)
         .map((r) => ({
           ...r,
@@ -240,8 +260,9 @@ export default function WorkoutDashboard() {
         }));
 
       setRawLogs(sanitized);
+      setBodyMetrics(metricsData || []);
     } catch (err) {
-      console.error("Failed to load workout logs from Supabase:", err);
+      console.error("Failed to load workout logs or body metrics from Supabase:", err);
       setErrorMsg(err.message || "Failed to load database rows");
     } finally {
       setLoading(false);
@@ -1125,6 +1146,16 @@ export default function WorkoutDashboard() {
               >
                 <Brain size={14} /> AI Decision Engine
               </button>
+              <button
+                onClick={() => setActiveTab("body")}
+                className={`pb-2.5 text-sm font-semibold tracking-wide border-b-2 transition-all flex items-center gap-1.5 ${
+                  activeTab === "body"
+                    ? "border-[#F4B740] text-[#F4B740]"
+                    : "border-transparent text-[#8A919C] hover:text-[#E7E9EC]"
+                }`}
+              >
+                <Scale size={14} /> Body Composition
+              </button>
             </div>
 
             {/* Insights View */}
@@ -1665,6 +1696,13 @@ export default function WorkoutDashboard() {
                   </div>
                 )}
               </div>
+            )}
+
+            {activeTab === "body" && (
+              <BodyCompositionTab 
+                bodyMetrics={bodyMetrics} 
+                onRefresh={loadData}
+              />
             )}
           </>
         )}
