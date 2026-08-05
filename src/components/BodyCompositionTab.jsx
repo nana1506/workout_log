@@ -151,6 +151,24 @@ export default function BodyCompositionTab({ bodyMetrics = [], onRefresh }) {
 
       const data = await response.json();
 
+      const weight = data.weight_kg !== null && data.weight_kg !== undefined ? parseFloat(data.weight_kg) : NaN;
+      
+      let fatMassKg = data.fat_mass_kg;
+      if ((fatMassKg === null || fatMassKg === undefined || fatMassKg === "") && !isNaN(weight)) {
+        const fatPct = data.fat_mass_pct !== null && data.fat_mass_pct !== undefined ? parseFloat(data.fat_mass_pct) : NaN;
+        if (!isNaN(fatPct)) {
+          fatMassKg = Math.round(weight * (fatPct / 100) * 100) / 100;
+        }
+      }
+
+      let muscleMassKg = data.muscle_mass_kg;
+      if ((muscleMassKg === null || muscleMassKg === undefined || muscleMassKg === "") && !isNaN(weight)) {
+        const musclePct = data.muscle_mass_pct !== null && data.muscle_mass_pct !== undefined ? parseFloat(data.muscle_mass_pct) : NaN;
+        if (!isNaN(musclePct)) {
+          muscleMassKg = Math.round(weight * (musclePct / 100) * 100) / 100;
+        }
+      }
+
       setFormData({
         date: parseDateString(data.date) || getTodayDateString(),
         weight_kg: data.weight_kg ?? "",
@@ -159,9 +177,9 @@ export default function BodyCompositionTab({ bodyMetrics = [], onRefresh }) {
         body_age: data.body_age ?? "",
         bmi: data.bmi ?? "",
         fat_mass_pct: data.fat_mass_pct ?? "",
-        fat_mass_kg: data.fat_mass_kg ?? "",
+        fat_mass_kg: fatMassKg ?? "",
         muscle_mass_pct: data.muscle_mass_pct ?? "",
-        muscle_mass_kg: data.muscle_mass_kg ?? "",
+        muscle_mass_kg: muscleMassKg ?? "",
         visceral_fat: data.visceral_fat ?? "",
         bmr: data.bmr ?? "",
         arm_left_muscle_kg: data.arm_left_muscle_kg ?? "",
@@ -262,10 +280,30 @@ export default function BodyCompositionTab({ bodyMetrics = [], onRefresh }) {
   };
 
   const handleFieldChange = (key, value) => {
-    setFormData(prev => ({
-      ...prev,
-      [key]: value
-    }));
+    setFormData(prev => {
+      const updated = { ...prev, [key]: value };
+
+      // Auto-calculate fat_mass_kg if weight and fat_mass_pct are provided
+      if (key === "weight_kg" || key === "fat_mass_pct") {
+        const weight = parseFloat(updated.weight_kg);
+        const fatPct = parseFloat(updated.fat_mass_pct);
+        if (!isNaN(weight) && !isNaN(fatPct) && weight > 0 && fatPct >= 0) {
+          updated.fat_mass_kg = String(Math.round(weight * (fatPct / 100) * 100) / 100);
+        }
+      }
+
+      // Auto-calculate muscle_mass_kg if weight and muscle_mass_pct are provided
+      if (key === "weight_kg" || key === "muscle_mass_pct") {
+        const weight = parseFloat(updated.weight_kg);
+        const musclePct = parseFloat(updated.muscle_mass_pct);
+        if (!isNaN(weight) && !isNaN(musclePct) && weight > 0 && musclePct >= 0) {
+          updated.muscle_mass_kg = String(Math.round(weight * (musclePct / 100) * 100) / 100);
+        }
+      }
+
+      return updated;
+    });
+
     // Clear error inline
     if (formErrors[key]) {
       setFormErrors(prev => {
@@ -321,9 +359,9 @@ export default function BodyCompositionTab({ bodyMetrics = [], onRefresh }) {
         age: cleanValueForInsert(formData.age),
         body_age: cleanValueForInsert(formData.body_age),
         bmi: cleanValueForInsert(formData.bmi),
-        fat_mass_pct: cleanValueForInsert(formData.fat_mass_pct),
+        fat_mass_pct: cleanValueForInsert(formData.fat_mass_pct) !== null ? cleanValueForInsert(formData.fat_mass_pct) / 100 : null,
         fat_mass_kg: cleanValueForInsert(formData.fat_mass_kg),
-        muscle_mass_pct: cleanValueForInsert(formData.muscle_mass_pct),
+        muscle_mass_pct: cleanValueForInsert(formData.muscle_mass_pct) !== null ? cleanValueForInsert(formData.muscle_mass_pct) / 100 : null,
         muscle_mass_kg: cleanValueForInsert(formData.muscle_mass_kg),
         visceral_fat: cleanValueForInsert(formData.visceral_fat),
         bmr: cleanValueForInsert(formData.bmr),
@@ -366,6 +404,8 @@ export default function BodyCompositionTab({ bodyMetrics = [], onRefresh }) {
       .sort((a, b) => new Date(a.date) - new Date(b.date))
       .map((m) => ({
         ...m,
+        fat_mass_pct: m.fat_mass_pct !== null ? Math.round(m.fat_mass_pct * 100 * 10) / 10 : null,
+        muscle_mass_pct: m.muscle_mass_pct !== null ? Math.round(m.muscle_mass_pct * 100 * 10) / 10 : null,
         dateLabel: new Date(m.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
       }));
   }, [bodyMetrics]);
@@ -373,12 +413,21 @@ export default function BodyCompositionTab({ bodyMetrics = [], onRefresh }) {
   // Latest entry insights
   const latestMetric = useMemo(() => {
     if (!bodyMetrics.length) return null;
-    return bodyMetrics[0]; // Ordered DESC by date
+    const m = bodyMetrics[0]; // Ordered DESC by date
+    return {
+      ...m,
+      fat_mass_pct: m.fat_mass_pct !== null ? Math.round(m.fat_mass_pct * 100 * 10) / 10 : null,
+      muscle_mass_pct: m.muscle_mass_pct !== null ? Math.round(m.muscle_mass_pct * 100 * 10) / 10 : null,
+    };
   }, [bodyMetrics]);
 
   // History visible limit (cap at 20)
   const historyLogs = useMemo(() => {
-    return bodyMetrics.slice(0, 20);
+    return bodyMetrics.slice(0, 20).map((m) => ({
+      ...m,
+      fat_mass_pct: m.fat_mass_pct !== null ? Math.round(m.fat_mass_pct * 100 * 10) / 10 : null,
+      muscle_mass_pct: m.muscle_mass_pct !== null ? Math.round(m.muscle_mass_pct * 100 * 10) / 10 : null,
+    }));
   }, [bodyMetrics]);
 
   return (
