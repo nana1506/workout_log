@@ -14,6 +14,8 @@ import { getRecoveryHours } from "./utils/recovery";
 import { detectPlateau, detectInjuryRisk } from "./utils/analysis";
 import { exportToCSV } from "./utils/csv";
 import BodyCompositionTab from "./components/BodyCompositionTab";
+import { buildDailyFatigueMap } from "./utils/dailyFatigue";
+import TrainingCalendarHeatmap from "./components/TrainingCalendarHeatmap";
 
 import { createClient } from '@supabase/supabase-js';
 

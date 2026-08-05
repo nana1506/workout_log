@@ -47,6 +47,7 @@ Respond ONLY with valid JSON, no markdown fences, no preamble, in this exact sha
   "recommendationText": "2-4 sentence coaching recommendation in plain language",
   "targetRecommendation": "one short line with a specific weight/rep target for the next session",
   "recommendedSplit": "A concise suggested muscle group split for today's session (e.g. 'Push (Chest, Shoulders & Triceps)' or 'Pull (Back & Biceps)' or 'Legs & Core' or 'Cardio & Active Recovery') incorporating the primary recommended muscle"
+  // Note: recommendedSplit is added as an enhancement beyond the original 2-field response shape
 }`;
 
         const response = await fetch(
