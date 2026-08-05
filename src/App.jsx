@@ -3,6 +3,7 @@ import {
   LineChart, Line, BarChart, Bar, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   ReferenceLine, ReferenceArea,
+  RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar
 } from "recharts";
 import {
   Dumbbell, TrendingUp, TrendingDown, Flame, CalendarCheck,
@@ -106,6 +107,50 @@ function acwrZone(v) {
   return { label: "High risk", color: "#EF7B57" };
 }
 
+function getTrainingSplit(muscleGroup) {
+  if (!muscleGroup) return { split: "Other", detail: "General" };
+  const m = muscleGroup.toLowerCase().trim();
+  
+  if (["chest", "pecs", "lats", "upper_back", "back", "shoulders", "deltoids", "traps"].includes(m)) {
+    return { split: "Upper", detail: muscleGroup };
+  }
+  if (["biceps", "triceps", "forearms", "arm", "arms"].includes(m)) {
+    return { split: "Arms", detail: muscleGroup };
+  }
+  if (["quadriceps", "quads", "hamstrings", "glutes", "legs", "calves", "abductors", "adductors"].includes(m)) {
+    return { split: "Legs", detail: muscleGroup };
+  }
+  if (["abdominals", "abs", "core"].includes(m)) {
+    return { split: "Core", detail: muscleGroup };
+  }
+  if (["full_body"].includes(m)) {
+    return { split: "Full Body", detail: muscleGroup };
+  }
+  return { split: "Other", detail: muscleGroup };
+}
+
+function getRadarMuscleCategory(muscleGroup) {
+  if (!muscleGroup) return "Other";
+  const m = muscleGroup.toLowerCase().trim();
+  
+  if (["back", "lats", "upper_back", "traps"].includes(m)) {
+    return "Back";
+  }
+  if (["chest", "pecs"].includes(m)) {
+    return "Chest";
+  }
+  if (["biceps", "triceps", "forearms", "shoulders", "deltoids", "arm", "arms"].includes(m)) {
+    return "Arm";
+  }
+  if (["abdominals", "abs", "core"].includes(m)) {
+    return "Core";
+  }
+  if (["quadriceps", "quads", "hamstrings", "glutes", "legs", "calves", "abductors", "adductors"].includes(m)) {
+    return "Legs";
+  }
+  return "Other";
+}
+
 function buildOneRmSeries(rows, isAllExercises = false) {
   const bySession = {};
   rows.forEach((r) => {
@@ -200,8 +245,27 @@ function CustomTooltip({ active, payload, label, suffix }) {
   );
 }
 
+function RadarTooltip({ active, payload }) {
+  if (!active || !payload || !payload.length) return null;
+  const data = payload[0].payload;
+  return (
+    <div className="rounded-lg border border-[#2A2F38] bg-[#1B1F26] px-3 py-2 text-xs shadow-lg space-y-1">
+      <div className="font-semibold text-[#E7E9EC]">{data.subject}</div>
+      <div className="text-[#8A919C] flex justify-between gap-4">
+        <span>Sets:</span>
+        <span className="text-[#F4B740] font-semibold">{data.sets}</span>
+      </div>
+      <div className="text-[#8A919C] flex justify-between gap-4">
+        <span>Volume:</span>
+        <span className="text-[#4FD1C5] font-semibold">{data.volume.toLocaleString()} kg</span>
+      </div>
+    </div>
+  );
+}
+
 export default function WorkoutDashboard() {
   const [activeTab, setActiveTab] = useState("insights"); // "insights" or "decision"
+  const [radarMetric, setRadarMetric] = useState("sets"); // "sets" or "volume"
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
@@ -536,6 +600,30 @@ export default function WorkoutDashboard() {
 
   const muscleGroups = useMemo(() => {
     return [...new Set(muscleVolumeLogs.map((r) => r.muscle_group || "Other"))];
+  }, [muscleVolumeLogs]);
+
+  const radarChartData = useMemo(() => {
+    const sets = { Back: 0, Chest: 0, Arm: 0, Core: 0, Legs: 0 };
+    const volume = { Back: 0, Chest: 0, Arm: 0, Core: 0, Legs: 0 };
+    
+    muscleVolumeLogs.forEach((r) => {
+      const cat = getRadarMuscleCategory(r.muscle_group);
+      if (cat !== "Other") {
+        sets[cat] += 1;
+        volume[cat] += (r.weight_kg || 0) * (r.reps || 0);
+      }
+    });
+
+    const totalSets = Object.values(sets).reduce((a, b) => a + b, 0);
+    const totalVolume = Object.values(volume).reduce((a, b) => a + b, 0);
+
+    return [
+      { subject: "Back", sets: sets.Back, volume: Math.round(volume.Back), pctSets: totalSets ? Math.round((sets.Back / totalSets) * 100) : 0, pctVolume: totalVolume ? Math.round((volume.Back / totalVolume) * 100) : 0 },
+      { subject: "Chest", sets: sets.Chest, volume: Math.round(volume.Chest), pctSets: totalSets ? Math.round((sets.Chest / totalSets) * 100) : 0, pctVolume: totalVolume ? Math.round((volume.Chest / totalVolume) * 100) : 0 },
+      { subject: "Arm", sets: sets.Arm, volume: Math.round(volume.Arm), pctSets: totalSets ? Math.round((sets.Arm / totalSets) * 100) : 0, pctVolume: totalVolume ? Math.round((volume.Arm / totalVolume) * 100) : 0 },
+      { subject: "Core", sets: sets.Core, volume: Math.round(volume.Core), pctSets: totalSets ? Math.round((sets.Core / totalSets) * 100) : 0, pctVolume: totalVolume ? Math.round((volume.Core / totalVolume) * 100) : 0 },
+      { subject: "Legs", sets: sets.Legs, volume: Math.round(volume.Legs), pctSets: totalSets ? Math.round((sets.Legs / totalSets) * 100) : 0, pctVolume: totalVolume ? Math.round((volume.Legs / totalVolume) * 100) : 0 },
+    ];
   }, [muscleVolumeLogs]);
 
   // ---- RPE trend ----
@@ -1317,6 +1405,109 @@ export default function WorkoutDashboard() {
                   </div>
                 </div>
 
+                {/* Muscle Split Balance Radar Chart Card */}
+                <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0">
+                  <div className="flex flex-col md:grid md:grid-cols-12 gap-6 items-center">
+                    {/* Left: Radar Chart */}
+                    <div className="w-full md:col-span-7 flex flex-col items-center">
+                      <div className="w-full h-[220px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <RadarChart cx="50%" cy="50%" outerRadius="75%" data={radarChartData}>
+                            <PolarGrid stroke="#232830" />
+                            <PolarAngleAxis dataKey="subject" tick={{ fill: "#8A919C", fontSize: 10, fontWeight: 500 }} />
+                            <PolarRadiusAxis 
+                              angle={30} 
+                              domain={[0, 'auto']} 
+                              tick={{ fill: "#8A919C", fontSize: 8 }} 
+                              axisLine={false}
+                              tickLine={false}
+                            />
+                            <Radar
+                              name={radarMetric === "sets" ? "Sets" : "Volume"}
+                              dataKey={radarMetric}
+                              stroke="#F4B740"
+                              fill="#F4B740"
+                              fillOpacity={0.18}
+                            />
+                            <Tooltip content={<RadarTooltip />} />
+                          </RadarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    {/* Right: Info and Stats breakdown list */}
+                    <div className="w-full md:col-span-5 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h2 className="text-sm font-semibold tracking-wide">Muscle Split Balance</h2>
+                          <p className="text-xs text-[#8A919C]">Workload distribution across splits</p>
+                        </div>
+                        {/* Interactive Toggle */}
+                        <div className="flex bg-[#0C0E12] rounded-lg p-0.5 border border-[#232830] shrink-0">
+                          <button
+                            onClick={() => setRadarMetric("sets")}
+                            className={`text-[10px] font-semibold px-2 py-1 rounded-md transition-all ${
+                              radarMetric === "sets"
+                                ? "bg-[#232830] text-[#E7E9EC]"
+                                : "text-[#8A919C] hover:text-[#E7E9EC]"
+                            }`}
+                          >
+                            Sets
+                          </button>
+                          <button
+                            onClick={() => setRadarMetric("volume")}
+                            className={`text-[10px] font-semibold px-2 py-1 rounded-md transition-all ${
+                              radarMetric === "volume"
+                                ? "bg-[#232830] text-[#E7E9EC]"
+                                : "text-[#8A919C] hover:text-[#E7E9EC]"
+                            }`}
+                          >
+                            Volume
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Distribution List */}
+                      <div className="space-y-3 pt-1">
+                        {radarChartData.map((item) => {
+                          const pct = radarMetric === "sets" ? item.pctSets : item.pctVolume;
+                          const displayVal = radarMetric === "sets" 
+                            ? `${item.sets} ${item.sets === 1 ? 'set' : 'sets'}` 
+                            : `${item.volume.toLocaleString()} kg`;
+                          
+                          // Determine a specific color accent for each split
+                          let splitColor = "#8A919C";
+                          if (item.subject === "Back") splitColor = "#EF7B57";
+                          else if (item.subject === "Chest") splitColor = "#F4B740";
+                          else if (item.subject === "Arm") splitColor = "#7FA6FF";
+                          else if (item.subject === "Core") splitColor = "#EC4899";
+                          else if (item.subject === "Legs") splitColor = "#4FD1C5";
+
+                          return (
+                            <div key={item.subject} className="space-y-1">
+                              <div className="flex justify-between items-center text-xs">
+                                <span className="font-semibold text-[#E7E9EC] flex items-center gap-1.5">
+                                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: splitColor }} />
+                                  {item.subject}
+                                </span>
+                                <span className="text-[#8A919C] font-mono">
+                                  {displayVal} <span className="text-[#E7E9EC]/80 font-bold ml-1">({pct}%)</span>
+                                </span>
+                              </div>
+                              <div className="w-full h-1.5 rounded-full bg-[#0C0E12] overflow-hidden border border-[#232830]/50">
+                                <div 
+                                  className="h-full rounded-full transition-all duration-500" 
+                                  style={{ width: `${pct}%`, backgroundColor: splitColor }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Volume & RPE Trend Grid (Moved UP below KPIs) */}
                 <div className="grid md:grid-cols-2 gap-6 relative z-0">
                   {/* Volume by muscle group */}
@@ -1661,9 +1852,9 @@ export default function WorkoutDashboard() {
                           <div className="bg-[#0C0E12] rounded-lg border border-[#232830] p-3 space-y-3">
                             <div className="flex items-center justify-between">
                               <div>
-                                <span className="text-[10px] uppercase tracking-wider text-[#8A919C] block">Target Muscle Group</span>
+                                <span className="text-[10px] uppercase tracking-wider text-[#8A919C] block">Target Split</span>
                                 <span className="text-xl font-semibold text-[#F4B740]" style={{ fontFamily: "'Oswald', sans-serif" }}>
-                                  {musclePriorities.recommended.muscle.toUpperCase()}
+                                  {`${getTrainingSplit(musclePriorities.recommended.muscle).split.toUpperCase()} (${getTrainingSplit(musclePriorities.recommended.muscle).detail.toUpperCase()})`}
                                 </span>
                               </div>
                               <div className="px-3 py-1 rounded text-xs font-semibold bg-[#4FD1C5]/10 text-[#4FD1C5] border border-[#4FD1C5]/30">
