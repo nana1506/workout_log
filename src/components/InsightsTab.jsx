@@ -1,12 +1,12 @@
 import React from "react";
 import {
-  LineChart, Line, BarChart, Bar,
+  LineChart, Line, BarChart, Bar, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  ReferenceArea, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar
+  ReferenceArea, ReferenceLine, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar
 } from "recharts";
 import {
   Flame, Trophy, Activity, CalendarCheck, Rocket, Gauge,
-  Download, ChevronDown, ChevronLeft, ChevronRight
+  Download, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle
 } from "lucide-react";
 import { KpiCard, MetricCard, CustomTooltip, RadarTooltip } from "./shared/SharedWidgets";
 import TrainingCalendarHeatmap from "./TrainingCalendarHeatmap";
@@ -32,6 +32,10 @@ export default function InsightsTab({
   radarMetric,
   setRadarMetric,
   volumeByMuscleGroupData,
+  rpeSeries,
+  oneRmSeries,
+  selectedExercisePlateauStatus,
+  visibleWeeklyStats,
   recentSets,
   currentPage,
   setCurrentPage,
@@ -160,20 +164,143 @@ export default function InsightsTab({
         </div>
       </div>
 
-      {/* Volume by Muscle Group Card */}
-      <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0">
-        <h2 className="text-sm font-semibold mb-3">Volume by Muscle Group</h2>
+      {/* Volume & RPE Trend Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-0">
+        {/* Volume by muscle group */}
+        <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5">
+          <h2 className="text-sm font-semibold mb-1">Volume by Muscle Group</h2>
+          <p className="text-xs text-[#8A919C] mb-4">Weekly kg lifted across categories</p>
+          <div className="w-full h-[200px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={volumeByMuscleGroupData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid stroke="#1E222A" vertical={false} />
+                <XAxis dataKey="week" tick={{ fill: "#8A919C", fontSize: 10 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
+                <YAxis tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} />
+                <Tooltip content={<CustomTooltip suffix=" kg" />} />
+                {Object.keys(MUSCLE_COLORS).map((mg) => (
+                  <Bar key={mg} dataKey={mg} stackId="vol" fill={MUSCLE_COLORS[mg] || "#8A919C"} radius={[2, 2, 0, 0]} />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Fatigue — RPE Trend */}
+        <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5">
+          <h2 className="text-sm font-semibold mb-1">Fatigue — RPE Trend</h2>
+          <p className="text-xs text-[#8A919C] mb-4">
+            Avg RPE per session for {selectedExerciseId === "all" ? "Overall Workouts" : activeExercise.title}
+          </p>
+          <div className="w-full h-[200px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={rpeSeries} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="rpeFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#7FA6FF" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="#7FA6FF" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="#1E222A" vertical={false} />
+                <XAxis dataKey="date" tick={{ fill: "#8A919C", fontSize: 10 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
+                <YAxis domain={[4, 10]} tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} />
+                <ReferenceLine y={9} stroke="#EF7B57" strokeDasharray="3 3" strokeOpacity={0.5} />
+                <Tooltip content={<CustomTooltip suffix=" RPE" />} />
+                <Area type="monotone" dataKey="rpe" name="RPE" stroke="#7FA6FF" strokeWidth={2} fill="url(#rpeFill)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      {/* 1RM Trend */}
+      <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0 space-y-3">
+        {selectedExercisePlateauStatus.isPlateaued && (
+          <div className="rounded-lg border border-[#F4B740]/30 bg-[#F4B740]/5 p-3 flex items-start gap-2 text-xs text-[#F4B740] transition-all">
+            <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+            <div>
+              <span className="font-semibold block">Training Plateau Detected</span>
+              No meaningful change in estimated 1RM has been achieved in the last {selectedExercisePlateauStatus.sessionsFlat} sessions (since {fmtDate(selectedExercisePlateauStatus.sinceDate)}). Consider altering your rep ranges or exercise variation to break the adaptation.
+            </div>
+          </div>
+        )}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold">Progressive Overload — Est. 1RM</h2>
+            <p className="text-xs text-[#8A919C]">
+              Gold dot = peak PR record ({selectedExerciseId === "all" ? "Overall" : activeExercise.title})
+            </p>
+          </div>
+        </div>
         <div className="w-full h-[220px]">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={volumeByMuscleGroupData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+            <LineChart data={oneRmSeries} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <CartesianGrid stroke="#1E222A" vertical={false} />
-              <XAxis dataKey="week" tick={{ fill: "#8A919C", fontSize: 10 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
-              <YAxis tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} />
+              <XAxis dataKey="date" tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
+              <YAxis tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} domain={["dataMin - 5", "dataMax + 5"]} />
               <Tooltip content={<CustomTooltip suffix=" kg" />} />
-              {Object.keys(MUSCLE_COLORS).map((mg) => (
-                <Bar key={mg} dataKey={mg} stackId="vol" fill={MUSCLE_COLORS[mg] || "#8A919C"} radius={[2, 2, 0, 0]} />
-              ))}
-            </BarChart>
+              <Line
+                type="monotone"
+                dataKey="oneRm"
+                name="Est. 1RM"
+                stroke="#F4B740"
+                strokeWidth={2}
+                dot={(props) => {
+                  const { cx, cy, payload, index } = props;
+                  return (
+                    <circle
+                      key={`dot-${index}`}
+                      cx={cx}
+                      cy={cy}
+                      r={payload.isPR ? 5 : 3}
+                      fill={payload.isPR ? "#F4B740" : "#0C0E12"}
+                      stroke="#F4B740"
+                      strokeWidth={payload.isPR ? 0 : 2}
+                    />
+                  );
+                }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* ACWR Chart */}
+      <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0">
+        <h2 className="text-sm font-semibold mb-1">Training Load — Acute:Chronic Workload Ratio</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <p className="text-xs text-[#8A919C]">Volume vs trailing 4-week moving average</p>
+          <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+            <div className="flex items-center gap-1.5 text-[10px] text-[#8A919C]">
+              <span className="w-2.5 h-2.5 rounded bg-[#7FA6FF]/20 border border-[#7FA6FF]/40 inline-block" />
+              <span>Under-trained (&lt;0.8)</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[10px] text-[#8A919C]">
+              <span className="w-2.5 h-2.5 rounded bg-[#4FD1C5]/20 border border-[#4FD1C5]/40 inline-block" />
+              <span>Sweet Spot (0.8 - 1.3)</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[10px] text-[#8A919C]">
+              <span className="w-2.5 h-2.5 rounded bg-[#F4B740]/25 border border-[#F4B740]/45 inline-block" />
+              <span>Caution (1.3 - 1.5)</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[10px] text-[#8A919C]">
+              <span className="w-2.5 h-2.5 rounded bg-[#EF7B57]/25 border border-[#EF7B57]/45 inline-block" />
+              <span>Danger Zone (&gt;1.5)</span>
+            </div>
+          </div>
+        </div>
+        <div className="w-full h-[200px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={visibleWeeklyStats.filter(w => w.date).map((w) => ({ ...w, label: fmtDate(w.date) }))} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <CartesianGrid stroke="#1E222A" vertical={false} />
+              <XAxis dataKey="label" tick={{ fill: "#8A919C", fontSize: 10 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
+              <YAxis domain={[0, 1.8]} tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} />
+              <ReferenceArea y1={0} y2={0.8} fill="#7FA6FF" fillOpacity={0.08} />
+              <ReferenceArea y1={0.8} y2={1.3} fill="#4FD1C5" fillOpacity={0.08} />
+              <ReferenceArea y1={1.3} y2={1.5} fill="#F4B740" fillOpacity={0.1} />
+              <ReferenceArea y1={1.5} y2={1.8} fill="#EF7B57" fillOpacity={0.1} />
+              <Tooltip content={<CustomTooltip suffix="" />} />
+              <Line type="monotone" dataKey="acwr" name="ACWR" stroke="#E7E9EC" strokeWidth={2} />
+            </LineChart>
           </ResponsiveContainer>
         </div>
       </div>
