@@ -1316,7 +1316,7 @@ export default function WorkoutDashboard() {
                 radarChartData={radarChartData}
                 radarMetric={radarMetric}
                 setRadarMetric={setRadarMetric}
-                volumeByMuscleGroupData={volumeByMuscleGroupData}
+                volumeByMuscleGroupData={volumeByMuscle}
                 recentSets={recentSets}
                 currentPage={currentPage}
                 setCurrentPage={setCurrentPage}
