@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import {
-  Dumbbell, Trophy, Database, X, Scale, Brain
+  Dumbbell, Trophy, Database, X, Scale, Brain,
+  RefreshCw, ChevronDown, CalendarCheck, Download
 } from "lucide-react";
 
 import { getRecoveryHours } from "./utils/recovery";
