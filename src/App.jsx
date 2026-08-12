@@ -892,7 +892,7 @@ export default function WorkoutDashboard() {
     const recommendedMuscleName = musclePriorities.recommended?.muscle;
     if (!recommendedMuscleName || !expandedStimulus.length) return [];
     
-    const fortyEightHoursAgo = new Date(anchorDate.getTime() - 48 * 24 * 60 * 60 * 1000);
+    const fortyEightHoursAgo = new Date(anchorDate.getTime() - 48 * 60 * 60 * 1000);
     
     return expandedStimulus
       .filter(s => 
