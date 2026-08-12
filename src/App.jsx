@@ -889,6 +889,7 @@ export default function WorkoutDashboard() {
   }, [musclePriorities.recommended, expandedStimulus, currentAcwr]);
 
   const recentSecondaryStimulus = useMemo(() => {
+    const recommendedMuscleName = musclePriorities.recommended?.muscle;
     if (!recommendedMuscleName || !expandedStimulus.length) return [];
     
     const fortyEightHoursAgo = new Date(now.getTime() - 48 * 24 * 60 * 60 * 1000);
@@ -907,7 +908,7 @@ export default function WorkoutDashboard() {
           viaExercise: s.title || s.work_id
         };
       });
-  }, [expandedStimulus, recommendedMuscleName, now]);
+  }, [expandedStimulus, musclePriorities.recommended, now]);
 
   // 4a. Recommended-scoped exercise logs (independent of selectedExerciseId)
   const recommendedExerciseLogs = useMemo(() => {
