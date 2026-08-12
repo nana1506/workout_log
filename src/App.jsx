@@ -238,8 +238,8 @@ export default function WorkoutDashboard() {
         .filter(d => d.program_id === program.id)
         .map(day => {
           const exercises = programExercises
-            .filter(e => e.day_id === day.id)
-            .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+            .filter(e => e.program_day_id === day.id)
+            .sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
           return {
             ...day,
             exercises
@@ -247,8 +247,8 @@ export default function WorkoutDashboard() {
         });
         
       if (program.schedule_type === 'fixed_days') {
-        const weekdayOrder = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
-        days.sort((a, b) => (weekdayOrder[a.weekday] || 99) - (weekdayOrder[b.weekday] || 99));
+        const weekdayOrder = { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7 };
+        days.sort((a, b) => (weekdayOrder[(a.weekday || "").toLowerCase()] || 99) - (weekdayOrder[(b.weekday || "").toLowerCase()] || 99));
       } else {
         days.sort((a, b) => (a.day_order || 0) - (b.day_order || 0));
       }

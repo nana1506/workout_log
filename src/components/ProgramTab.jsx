@@ -45,7 +45,7 @@ export default function ProgramTab({
 
   // Today's weekday string in local time (e.g. "Mon")
   const todayWeekday = useMemo(() => {
-    return new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(new Date());
+    return new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(new Date()).toLowerCase();
   }, []);
 
   // 1. Determine today's day in rotating cycle
@@ -257,7 +257,7 @@ export default function ProgramTab({
       {
         id: "temp-" + Date.now() + Math.random(),
         name: `Day ${prev.length + 1}`,
-        weekday: scheduleType === "fixed_days" ? "Mon" : null,
+        weekday: scheduleType === "fixed_days" ? "mon" : null,
         day_order: scheduleType === "rotating_cycle" ? prev.length + 1 : null,
         exercises: []
       }
@@ -309,7 +309,7 @@ export default function ProgramTab({
     // Map existing days structure
     const mappedDays = prog.days.map(d => ({
       id: d.id,
-      name: d.name,
+      name: d.day_label,
       weekday: d.weekday,
       day_order: d.day_order,
       exercises: d.exercises.map(e => ({
@@ -392,8 +392,8 @@ export default function ProgramTab({
         const day = days[i];
         const dayPayload = {
           program_id: programId,
-          name: day.name,
-          weekday: scheduleType === "fixed_days" ? day.weekday : null,
+          day_label: day.name,
+          weekday: scheduleType === "fixed_days" ? (day.weekday || "mon").toLowerCase() : null,
           day_order: scheduleType === "rotating_cycle" ? (i + 1) : null
         };
         const { data: insertedDay, error: dayError } = await supabase
@@ -406,12 +406,12 @@ export default function ProgramTab({
         // Insert exercises for this day
         if (day.exercises && day.exercises.length) {
           const exercisesPayload = day.exercises.map((ex, exIdx) => ({
-            day_id: insertedDay.id,
+            program_day_id: insertedDay.id,
             exercise_title: ex.exercise_title,
             target_sets: Number(ex.target_sets),
             target_reps: Number(ex.target_reps),
             target_weight_kg: ex.target_weight_kg ? Number(ex.target_weight_kg) : null,
-            sort_order: exIdx
+            order_index: exIdx
           }));
           const { error: exercisesError } = await supabase
             .from('program_exercises')
@@ -491,7 +491,7 @@ export default function ProgramTab({
           <div className="space-y-4">
             <div className="border-b border-[#232830] pb-2 flex justify-between items-baseline">
               <span className="text-xs font-semibold text-[#E7E9EC]">
-                {todayProgramDay.name} {activeProgram.schedule_type === "fixed_days" ? `(${todayProgramDay.weekday})` : ""}
+                {todayProgramDay.day_label} {activeProgram.schedule_type === "fixed_days" ? `(${todayProgramDay.weekday})` : ""}
               </span>
               <span className="text-[10px] text-[#8A919C] font-mono">
                 Date: {todayStr}
@@ -698,20 +698,20 @@ export default function ProgramTab({
                             <div className="flex items-center gap-1.5">
                               <span className="text-[10px] text-[#8A919C] uppercase font-semibold">Weekday:</span>
                               <select
-                                value={day.weekday || "Mon"}
+                                value={(day.weekday || "mon").toLowerCase()}
                                 onChange={(e) => {
-                                  const val = e.target.value;
+                                  const val = e.target.value.toLowerCase();
                                   setDays(prev => prev.map(d => d.id === day.id ? { ...d, weekday: val } : d));
                                 }}
                                 className="bg-[#15181D] border border-[#232830] rounded px-2 py-0.5 text-xs text-[#E7E9EC] focus:outline-none"
                               >
-                                <option value="Mon">Mon</option>
-                                <option value="Tue">Tue</option>
-                                <option value="Wed">Wed</option>
-                                <option value="Thu">Thu</option>
-                                <option value="Fri">Fri</option>
-                                <option value="Sat">Sat</option>
-                                <option value="Sun">Sun</option>
+                                <option value="mon">Mon</option>
+                                <option value="tue">Tue</option>
+                                <option value="wed">Wed</option>
+                                <option value="thu">Thu</option>
+                                <option value="fri">Fri</option>
+                                <option value="sat">Sat</option>
+                                <option value="sun">Sun</option>
                               </select>
                             </div>
                           ) : (
@@ -999,7 +999,7 @@ export default function ProgramTab({
                     {prog.days.map((day) => (
                       <div key={day.id} className="bg-[#15181D] rounded border border-[#232830]/40 p-2.5 space-y-1.5">
                         <div className="flex justify-between items-baseline border-b border-[#232830]/50 pb-1">
-                          <span className="text-[10px] font-semibold text-[#E7E9EC] truncate max-w-[80px]">{day.name}</span>
+                          <span className="text-[10px] font-semibold text-[#E7E9EC] truncate max-w-[80px]">{day.day_label}</span>
                           {prog.schedule_type === "fixed_days" ? (
                             <span className="text-[8px] uppercase tracking-wider text-[#F4B740] font-bold font-mono">{day.weekday}</span>
                           ) : (
