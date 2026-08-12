@@ -18,7 +18,8 @@ export default async function handler(req, res) {
             consecutivePlateaus,  // number of recent consecutive plateaus (numeric)
             recentInjuryRisks,    // number of recent watch/elevated flags (numeric)
             weeksSinceDeload,     // null or number of weeks
-            recommendedMuscle     // string representing muscle group
+            recommendedMuscle,    // string representing muscle group
+            secondaryStimulusCount // numeric count of secondary muscle stimuli
         } = req.body;
 
         const prompt = `You are an elite strength-training analyst and sports scientist.
@@ -30,17 +31,19 @@ Signals:
 - Recent Injury Risk (watch or elevated flags): ${recentInjuryRisks}
 - Weeks Since Last Deload: ${weeksSinceDeload !== null ? weeksSinceDeload : 'none in visible window'}
 - Recommended Target Muscle: ${recommendedMuscle}
+- Recent Secondary Muscle Stimuli (across block window): ${secondaryStimulusCount || 0}
 
 Rules for deload suggestion:
 1. Suggest a deload (deloadRecommended: true) if ACWR is persistently high (>1.5), if injurywatch/elevated risk is flagged multiple times recently (>=2), if plateaus are persistent (consecutive plateaus >=2), or if they have trained hard for 6-8+ weeks without a deload.
-2. If none of these high-fatigue indicators are present, do not suggest a deload.
+2. Consider the additional systemic fatigue from secondary muscle stimulus (${secondaryStimulusCount || 0} events logged) which may increase overall recovery demands even if primary volume seems manageable.
+3. If none of these high-fatigue indicators are present, do not suggest a deload.
 
 Return ONLY a valid JSON object, no markdown fences, no preamble, matching this exact schema:
 {
   "phaseAssessment": "A 1-sentence description of the current training block phase (e.g. 'Accumulation phase with rising chronic workload' or 'Overreaching detected')",
   "deloadRecommended": true,
   "deloadWindow": "e.g. 'Next 5-7 days' or 'Week 9' (string or null if not recommended)",
-  "reasoning": "1-2 sentences citing the specific ACWR, plateau, or injury watches that led to your decision"
+  "reasoning": "1-2 sentences citing the specific ACWR, plateau, injury watches, or secondary workload that led to your decision"
 }`;
 
         const response = await fetch(

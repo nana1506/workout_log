@@ -24,16 +24,22 @@ export default async function handler(req, res) {
             lastSession,         // { exerciseName, weight, reps }
             fullyRecoveredMuscles,
             recoveringMuscles,
+            recentSecondaryStimulus, // short list of { muscle, hoursAgo, viaExercise }
         } = req.body;
 
         if (!recommendedMuscle || !lastSession) {
             return res.status(400).json({ error: 'Missing required signals' });
         }
 
+        let secondaryStimulusPrompt = '';
+        if (recentSecondaryStimulus && recentSecondaryStimulus.length > 0) {
+            secondaryStimulusPrompt = `\n- Recent secondary stimulus (residual fatigue): ${JSON.stringify(recentSecondaryStimulus)}. Note: the target muscle may already carry residual fatigue from secondary stimulus — factor this into the recommendation.`;
+        }
+
         const prompt = `You are a strength-training coach reviewing a lifter's recent data.
 Give a short, direct coaching recommendation and suggest a workout muscle split based on these signals:
 
-- Primary recommended muscle group to train next: ${recommendedMuscle} (${isRecovered ? 'fully recovered' : 'still recovering'})
+- Primary recommended muscle group to train next: ${recommendedMuscle} (${isRecovered ? 'fully recovered' : 'still recovering'})${secondaryStimulusPrompt}
 - Fully recovered muscle groups available: ${JSON.stringify(fullyRecoveredMuscles || [])}
 - Currently recovering muscle groups (avoid training unless active recovery): ${JSON.stringify(recoveringMuscles || [])}
 - Acute:Chronic Workload Ratio: ${acwr} (${acwrZoneLabel})

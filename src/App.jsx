@@ -17,6 +17,11 @@ import { exportToCSV } from "./utils/csv";
 import BodyCompositionTab from "./components/BodyCompositionTab";
 import { buildDailyFatigueMap } from "./utils/dailyFatigue";
 import TrainingCalendarHeatmap from "./components/TrainingCalendarHeatmap";
+import {
+  buildMuscleMapLookup,
+  getMusclesForExercise,
+  expandLogsWithMuscleStimulus
+} from "./utils/muscleMap";
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -44,6 +49,19 @@ export async function fetchBodyMetrics() {
     .from('body_metrics')
     .select('*')
     .order('date', { ascending: false });
+
+  if (error) {
+    console.error("Supabase Query Error:", error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+export async function fetchMuscleMap() {
+  const { data, error } = await supabase
+    .from('exercise_muscle_map')
+    .select('*');
 
   if (error) {
     console.error("Supabase Query Error:", error);
@@ -307,6 +325,7 @@ export default function WorkoutDashboard() {
 
   const [rawLogs, setRawLogs] = useState([]);
   const [bodyMetrics, setBodyMetrics] = useState([]);
+  const [muscleMapRows, setMuscleMapRows] = useState(null);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
 
@@ -314,12 +333,14 @@ export default function WorkoutDashboard() {
     try {
       setLoading(true);
       setErrorMsg(null);
-      const [logsData, metricsData] = await Promise.all([
+      const [logsData, metricsData, muscleMapData] = await Promise.all([
         fetchWorkoutLogs(),
-        fetchBodyMetrics()
+        fetchBodyMetrics(),
+        fetchMuscleMap()
       ]);
       console.log("Raw Supabase Data Loaded:", logsData);
       console.log("Raw Body Metrics Loaded:", metricsData);
+      console.log("Raw Muscle Map Loaded:", muscleMapData);
       
       // Sanitize logs: filter out invalid/empty rows and normalize workout_id
       const sanitized = (logsData || [])
@@ -331,6 +352,7 @@ export default function WorkoutDashboard() {
 
       setRawLogs(sanitized);
       setBodyMetrics(metricsData || []);
+      setMuscleMapRows(muscleMapData || []);
     } catch (err) {
       console.error("Failed to load workout logs or body metrics from Supabase:", err);
       setErrorMsg(err.message || "Failed to load database rows");
@@ -342,6 +364,9 @@ export default function WorkoutDashboard() {
   useEffect(() => {
     loadData();
   }, []);
+
+  const muscleMapLookup = useMemo(() => buildMuscleMapLookup(muscleMapRows || []), [muscleMapRows]);
+  const expandedStimulus = useMemo(() => expandLogsWithMuscleStimulus(rawLogs, muscleMapLookup), [rawLogs, muscleMapLookup]);
 
   // 1. Dynamic Exercise Options built directly from your table
   const exercisesList = useMemo(() => {
@@ -759,24 +784,28 @@ export default function WorkoutDashboard() {
     };
   }, [recoveryDetails, now]);
 
-  // 2. Muscle Recovery & Priorities Recommendation (using per-muscle base recovery times)
+  // 2. Muscle Recovery & Priorities Recommendation (using per-muscle base recovery times, secondary-aware)
   const musclePriorities = useMemo(() => {
-    if (!rawLogs.length) return { fullyRecovered: [], recovering: [], recommended: null };
+    if (!expandedStimulus.length) return { fullyRecovered: [], recovering: [], recommended: null };
     
-    const muscles = [...new Set(rawLogs.map(r => r.muscle_group).filter(Boolean))];
+    const muscles = [...new Set(expandedStimulus.map(s => s.stimulus_muscle).filter(Boolean))];
     
     const muscleStatus = muscles.map(muscle => {
-      const muscleLogs = rawLogs.filter(r => r.muscle_group === muscle);
-      const latestMuscleLog = muscleLogs.reduce((latest, r) => {
-        if (!latest) return r;
-        return new Date(r.completed_at) > new Date(latest.completed_at) ? r : latest;
+      const muscleEvents = expandedStimulus.filter(s => s.stimulus_muscle === muscle);
+      const latestMuscleEvent = muscleEvents.reduce((latest, s) => {
+        if (!latest) return s;
+        return new Date(s.completed_at) > new Date(latest.completed_at) ? s : latest;
       }, null);
       
-      const lastTrained = new Date(latestMuscleLog.completed_at);
+      const lastTrained = new Date(latestMuscleEvent.completed_at);
       const hoursSince = (now - lastTrained) / (1000 * 60 * 60);
       const daysSince = Math.round((hoursSince / 24) * 10) / 10;
       
-      const restHours = getRecoveryHours(muscle, latestMuscleLog.rpe || 7);
+      const role = latestMuscleEvent.role;
+      const contribution = latestMuscleEvent.contribution != null ? latestMuscleEvent.contribution : 1.0;
+      const baseRestHours = getRecoveryHours(muscle, latestMuscleEvent.rpe || 7);
+      const restHours = baseRestHours * (role === 'secondary' ? Math.max(contribution, 0.5) : 1);
+      
       const isRecovered = hoursSince >= restHours;
       const hoursRemaining = Math.max(0, restHours - hoursSince);
       
@@ -804,7 +833,7 @@ export default function WorkoutDashboard() {
       recovering,
       recommended: fullyRecovered.length > 0 ? fullyRecovered[0] : (recovering.length > 0 ? recovering[0] : null)
     };
-  }, [rawLogs, now]);
+  }, [expandedStimulus, now]);
 
   // 3a. Selected Exercise Plateau Status (for Insights tab Overload chart banner)
   const selectedExercisePlateauStatus = useMemo(() => {
@@ -819,7 +848,7 @@ export default function WorkoutDashboard() {
     if (!musclePriorities.recommended) return null;
     
     const recommendedMuscle = musclePriorities.recommended.muscle;
-    const muscleLogs = rawLogs.filter(r => r.muscle_group === recommendedMuscle);
+    const muscleLogs = expandedStimulus.filter(s => s.stimulus_muscle === recommendedMuscle);
     if (!muscleLogs.length) return null;
     
     const latestExerciseLog = muscleLogs.reduce((latest, r) => {
@@ -857,7 +886,28 @@ export default function WorkoutDashboard() {
       fatigueColor,
       fatigueDetails
     };
-  }, [musclePriorities.recommended, rawLogs, currentAcwr]);
+  }, [musclePriorities.recommended, expandedStimulus, currentAcwr]);
+
+  const recentSecondaryStimulus = useMemo(() => {
+    if (!recommendedMuscleName || !expandedStimulus.length) return [];
+    
+    const fortyEightHoursAgo = new Date(now.getTime() - 48 * 24 * 60 * 60 * 1000);
+    
+    return expandedStimulus
+      .filter(s => 
+        s.role === 'secondary' && 
+        s.stimulus_muscle === recommendedMuscleName && 
+        new Date(s.completed_at) >= fortyEightHoursAgo
+      )
+      .map(s => {
+        const hoursAgo = Math.round((now - new Date(s.completed_at)) / (1000 * 60 * 60) * 10) / 10;
+        return {
+          muscle: s.stimulus_muscle,
+          hoursAgo,
+          viaExercise: s.title || s.work_id
+        };
+      });
+  }, [expandedStimulus, recommendedMuscleName, now]);
 
   // 4a. Recommended-scoped exercise logs (independent of selectedExerciseId)
   const recommendedExerciseLogs = useMemo(() => {
@@ -929,6 +979,7 @@ export default function WorkoutDashboard() {
             },
             fullyRecoveredMuscles: musclePriorities.fullyRecovered.map(m => m.muscle),
             recoveringMuscles: musclePriorities.recovering.map(m => m.muscle),
+            recentSecondaryStimulus,
           }),
         });
         
@@ -971,7 +1022,8 @@ export default function WorkoutDashboard() {
     injuryRiskLevel,
     exerciseName,
     lastWeight,
-    lastReps
+    lastReps,
+    recentSecondaryStimulus
   ]);
 
   // ---- Block Suggestions calculation and API call ----
@@ -1016,6 +1068,12 @@ export default function WorkoutDashboard() {
     return deloadIdx === -1 ? null : deloadIdx;
   }, [weeklyStats]);
 
+  const recentSecondaryStimulusCount = useMemo(() => {
+    if (!expandedStimulus.length) return 0;
+    const fourWeeksAgo = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000);
+    return expandedStimulus.filter(s => s.role === 'secondary' && new Date(s.completed_at) >= fourWeeksAgo).length;
+  }, [expandedStimulus, now]);
+
   const blockContext = useMemo(() => {
     const last4Weeks = weeklyStats.slice(-4);
     const acwrTrajectory = last4Weeks.map(w => ({
@@ -1032,8 +1090,9 @@ export default function WorkoutDashboard() {
       recentInjuryRisks: recentInjuryRiskCount,
       weeksSinceDeload: weeksSinceDeload,
       recommendedMuscle: fatigueInfo?.exerciseName || "Overall",
+      secondaryStimulusCount: recentSecondaryStimulusCount
     };
-  }, [weeklyStats, consecutivePlateauCount, recentInjuryRiskCount, weeksSinceDeload, fatigueInfo]);
+  }, [weeklyStats, consecutivePlateauCount, recentInjuryRiskCount, weeksSinceDeload, fatigueInfo, recentSecondaryStimulusCount]);
 
   useEffect(() => {
     if (!blockContext || weeklyStats.length < 3) {
@@ -1081,6 +1140,69 @@ export default function WorkoutDashboard() {
       clearTimeout(timer);
     };
   }, [JSON.stringify(blockContext), weeklyStats.length]);
+
+  const attemptedClassifications = useRef(new Set());
+
+  useEffect(() => {
+    if (!rawLogs.length || muscleMapRows === null) return;
+
+    const runClassification = async () => {
+      const uniqueTitles = [...new Set(rawLogs.map(r => r.title || r.work_id).filter(Boolean))];
+      const missingTitles = uniqueTitles.filter(title => !muscleMapLookup.has(title));
+
+      for (const title of missingTitles) {
+        if (attemptedClassifications.current.has(title)) continue;
+        attemptedClassifications.current.add(title);
+
+        console.log(`Auto-classifying missing exercise: "${title}"`);
+        const logWithTitle = rawLogs.find(r => (r.title || r.work_id) === title);
+        const existingPrimary = logWithTitle ? logWithTitle.muscle_group : null;
+
+        try {
+          const response = await fetch("/api/classify-exercise-muscles", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title, existingPrimary })
+          });
+
+          if (!response.ok) {
+            throw new Error(`Failed to classify exercise: status ${response.status}`);
+          }
+
+          const result = await response.json();
+          const rowsToInsert = [
+            {
+              exercise_key: title,
+              muscle_group: result.primary_muscle,
+              role: 'primary',
+              contribution: 1.0
+            },
+            ...result.secondary_muscles.map(sm => ({
+              exercise_key: title,
+              muscle_group: sm.muscle_group,
+              role: 'secondary',
+              contribution: sm.contribution
+            }))
+          ];
+
+          const { error: insertError } = await supabase
+            .from('exercise_muscle_map')
+            .insert(rowsToInsert);
+
+          if (insertError) {
+            throw insertError;
+          }
+
+          console.log(`Successfully classified and stored muscle mapping for "${title}":`, rowsToInsert);
+          setMuscleMapRows(prev => [...(prev || []), ...rowsToInsert]);
+        } catch (err) {
+          console.error(`Failed to auto-classify exercise "${title}":`, err);
+        }
+      }
+    };
+
+    runClassification();
+  }, [rawLogs, muscleMapLookup, muscleMapRows]);
 
   const toggleDate = (date) => {
     if (dateFilterMode === "all") {
@@ -1657,6 +1779,9 @@ export default function WorkoutDashboard() {
                           <th className="py-2 pr-3 font-medium cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("muscle_group")}>
                             Muscle {sortColumn === "muscle_group" && (sortDirection === "asc" ? "▲" : "▼")}
                           </th>
+                          <th className="py-2 pr-3 font-medium text-[#8A919C]">
+                            Secondary
+                          </th>
                           <th className="py-2 pr-3 font-medium text-right cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("weight_kg")}>
                             Weight {sortColumn === "weight_kg" && (sortDirection === "asc" ? "▲" : "▼")}
                           </th>
@@ -1688,6 +1813,31 @@ export default function WorkoutDashboard() {
                               >
                                 {r.muscle_group || "General"}
                               </span>
+                            </td>
+                            <td className="py-2 pr-3">
+                              {(() => {
+                                const secondaryMuscles = getMusclesForExercise(r.title || r.work_id, muscleMapLookup, r.muscle_group)
+                                  .filter(m => m.role === 'secondary');
+                                if (secondaryMuscles.length === 0) {
+                                  return <span className="text-[#8A919C]">—</span>;
+                                }
+                                return (
+                                  <div className="flex flex-wrap gap-1">
+                                    {secondaryMuscles.map((sm, idx) => (
+                                      <span
+                                        key={idx}
+                                        className="px-1 py-0.2 rounded text-[9px] whitespace-nowrap"
+                                        style={{
+                                          background: `${MUSCLE_COLORS[sm.muscle_group] || "#8A919C"}22`,
+                                          color: MUSCLE_COLORS[sm.muscle_group] || "#8A919C"
+                                        }}
+                                      >
+                                        {sm.muscle_group}
+                                      </span>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
                             </td>
                             <td className="py-2 pr-3 text-right tabular-nums">{r.weight_kg ?? 0} kg</td>
                             <td className="py-2 pr-3 text-right tabular-nums">{r.reps ?? 0}</td>
