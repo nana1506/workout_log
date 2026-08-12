@@ -892,7 +892,7 @@ export default function WorkoutDashboard() {
     const recommendedMuscleName = musclePriorities.recommended?.muscle;
     if (!recommendedMuscleName || !expandedStimulus.length) return [];
     
-    const fortyEightHoursAgo = new Date(now.getTime() - 48 * 24 * 60 * 60 * 1000);
+    const fortyEightHoursAgo = new Date(anchorDate.getTime() - 48 * 24 * 60 * 60 * 1000);
     
     return expandedStimulus
       .filter(s => 
@@ -901,14 +901,14 @@ export default function WorkoutDashboard() {
         new Date(s.completed_at) >= fortyEightHoursAgo
       )
       .map(s => {
-        const hoursAgo = Math.round((now - new Date(s.completed_at)) / (1000 * 60 * 60) * 10) / 10;
+        const hoursAgo = Math.round((anchorDate - new Date(s.completed_at)) / (1000 * 60 * 60) * 10) / 10;
         return {
           muscle: s.stimulus_muscle,
           hoursAgo,
           viaExercise: s.title || s.work_id
         };
       });
-  }, [expandedStimulus, musclePriorities.recommended, now]);
+  }, [expandedStimulus, musclePriorities.recommended, anchorDate]);
 
   // 4a. Recommended-scoped exercise logs (independent of selectedExerciseId)
   const recommendedExerciseLogs = useMemo(() => {
@@ -1071,9 +1071,9 @@ export default function WorkoutDashboard() {
 
   const recentSecondaryStimulusCount = useMemo(() => {
     if (!expandedStimulus.length) return 0;
-    const fourWeeksAgo = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000);
+    const fourWeeksAgo = new Date(anchorDate.getTime() - 28 * 24 * 60 * 60 * 1000);
     return expandedStimulus.filter(s => s.role === 'secondary' && new Date(s.completed_at) >= fourWeeksAgo).length;
-  }, [expandedStimulus, now]);
+  }, [expandedStimulus, anchorDate]);
 
   const blockContext = useMemo(() => {
     const last4Weeks = weeklyStats.slice(-4);
