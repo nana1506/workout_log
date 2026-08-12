@@ -106,8 +106,7 @@ export async function fetchPrograms() {
 export async function fetchProgramDays() {
   const { data, error } = await supabase
     .from('program_days')
-    .select('*')
-    .order('created_at', { ascending: true });
+    .select('*');
 
   if (error) {
     console.error("Supabase Query Error fetching program_days:", error);
@@ -119,8 +118,7 @@ export async function fetchProgramDays() {
 export async function fetchProgramExercises() {
   const { data, error } = await supabase
     .from('program_exercises')
-    .select('*')
-    .order('created_at', { ascending: true });
+    .select('*');
 
   if (error) {
     console.error("Supabase Query Error fetching program_exercises:", error);
