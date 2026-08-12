@@ -1,27 +1,30 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import {
-  LineChart, Line, BarChart, Bar, AreaChart, Area,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  ReferenceLine, ReferenceArea,
-  RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar
-} from "recharts";
-import {
-  Dumbbell, TrendingUp, TrendingDown, Flame, CalendarCheck,
-  ChevronDown, Trophy, Database, X, Activity, Rocket, Gauge, Timer, RefreshCw,
-  Brain, CheckCircle2, AlertTriangle, ChevronRight, AlertOctagon, Download, ChevronLeft, Scale
+  Dumbbell, Trophy, Database, X, Scale, Brain
 } from "lucide-react";
 
 import { getRecoveryHours } from "./utils/recovery";
 import { detectPlateau, detectInjuryRisk } from "./utils/analysis";
 import { exportToCSV } from "./utils/csv";
 import BodyCompositionTab from "./components/BodyCompositionTab";
+import InsightsTab from "./components/InsightsTab";
+import DecisionTab from "./components/DecisionTab";
 import { buildDailyFatigueMap } from "./utils/dailyFatigue";
-import TrainingCalendarHeatmap from "./components/TrainingCalendarHeatmap";
 import {
   buildMuscleMapLookup,
   getMusclesForExercise,
   expandLogsWithMuscleStimulus
 } from "./utils/muscleMap";
+import {
+  estOneRM,
+  linregSlope,
+  fmtDate,
+  acwrZone,
+  getTrainingSplit,
+  getRadarMuscleCategory,
+  buildOneRmSeries
+} from "./utils/calculations";
+import { MUSCLE_COLORS, PERIODS } from "./constants";
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -71,214 +74,18 @@ export async function fetchMuscleMap() {
   return data || [];
 }
 
-const WEEKS = 10;
+export async function fetchTrainingGoals() {
+  const { data, error } = await supabase
+    .from('training_goals')
+    .select('*')
+    .order('created_at', { ascending: false });
 
-function estOneRM(weight, reps) {
-  if (!weight || !reps) return 0;
-  return Math.round(weight * (1 + reps / 30) * 10) / 10;
-}
-
-function linregSlope(points) {
-  const n = points.length;
-  if (n < 2) return 0;
-  const sumX = points.reduce((s, p) => s + p.x, 0);
-  const sumY = points.reduce((s, p) => s + p.y, 0);
-  const sumXY = points.reduce((s, p) => s + p.x * p.y, 0);
-  const sumXX = points.reduce((s, p) => s + p.x * p.x, 0);
-  const denom = n * sumXX - sumX * sumX;
-  if (denom === 0) return 0;
-  return (n * sumXY - sumX * sumY) / denom;
-}
-
-const MUSCLE_COLORS = {
-  abdominals: "#EC4899",
-  abductors: "#A855F7",
-  adductors: "#8B5CF6",
-  biceps: "#3B82F6",
-  calves: "#06B6D4",
-  chest: "#F4B740",
-  full_body: "#10B981",
-  hamstrings: "#14B8A6",
-  lats: "#EF7B57",
-  quadriceps: "#4FD1C5",
-  shoulders: "#7FA6FF",
-  traps: "#F97316",
-  triceps: "#6366F1",
-  upper_back: "#E11D48",
-};
-
-const PERIODS = [
-  { label: "7D", days: 7 },
-  { label: "1M", days: 30 },
-  { label: "All", days: null }
-];
-
-function fmtDate(iso) {
-  if (!iso) return "";
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function acwrZone(v) {
-  if (v < 0.8) return { label: "Low stimulus", color: "#7FA6FF" };
-  if (v <= 1.3) return { label: "Sweet spot", color: "#4FD1C5" };
-  if (v <= 1.5) return { label: "Caution", color: "#F4B740" };
-  return { label: "High risk", color: "#EF7B57" };
-}
-
-function getTrainingSplit(muscleGroup) {
-  if (!muscleGroup) return { split: "Other", detail: "General" };
-  const m = muscleGroup.toLowerCase().trim();
-  
-  if (["chest", "pecs", "lats", "upper_back", "back", "shoulders", "deltoids", "traps"].includes(m)) {
-    return { split: "Upper", detail: muscleGroup };
+  if (error) {
+    console.error("Supabase Query Error fetching training_goals:", error);
+    throw error;
   }
-  if (["biceps", "triceps", "forearms", "arm", "arms"].includes(m)) {
-    return { split: "Arms", detail: muscleGroup };
-  }
-  if (["quadriceps", "quads", "hamstrings", "glutes", "legs", "calves", "abductors", "adductors"].includes(m)) {
-    return { split: "Legs", detail: muscleGroup };
-  }
-  if (["abdominals", "abs", "core"].includes(m)) {
-    return { split: "Core", detail: muscleGroup };
-  }
-  if (["full_body"].includes(m)) {
-    return { split: "Full Body", detail: muscleGroup };
-  }
-  return { split: "Other", detail: muscleGroup };
-}
 
-function getRadarMuscleCategory(muscleGroup) {
-  if (!muscleGroup) return "Other";
-  const m = muscleGroup.toLowerCase().trim();
-  
-  if (["back", "lats", "upper_back", "traps"].includes(m)) {
-    return "Back";
-  }
-  if (["chest", "pecs"].includes(m)) {
-    return "Chest";
-  }
-  if (["biceps", "triceps", "forearms", "shoulders", "deltoids", "arm", "arms"].includes(m)) {
-    return "Arm";
-  }
-  if (["abdominals", "abs", "core"].includes(m)) {
-    return "Core";
-  }
-  if (["quadriceps", "quads", "hamstrings", "glutes", "legs", "calves", "abductors", "adductors"].includes(m)) {
-    return "Legs";
-  }
-  return "Other";
-}
-
-function buildOneRmSeries(rows, isAllExercises = false) {
-  const bySession = {};
-  rows.forEach((r) => {
-    const calculated1RM = r.best_1rm || estOneRM(r.weight_kg, r.reps);
-    if (isAllExercises) {
-      const dateKey = r.completed_at.slice(0, 10);
-      if (!bySession[dateKey]) {
-        bySession[dateKey] = { completed_at: r.completed_at, oneRms: [] };
-      }
-      bySession[dateKey].oneRms.push(calculated1RM);
-    } else {
-      const key = r.set_id ? r.set_id.split("-s")[0] : `${r.work_id || r.title}-${r.completed_at}`;
-      if (!bySession[key] || calculated1RM > (bySession[key]._calc1RM || 0)) {
-        bySession[key] = { ...r, _calc1RM: calculated1RM };
-      }
-    }
-  });
-
-  const sorted = Object.values(bySession).sort((a, b) => new Date(a.completed_at) - new Date(b.completed_at));
-  let runningMax = 0;
-  return sorted.map((item) => {
-    if (isAllExercises) {
-      const avg1Rm = Math.round((item.oneRms.reduce((sum, val) => sum + val, 0) / item.oneRms.length) * 10) / 10;
-      const isPR = avg1Rm > runningMax;
-      if (isPR) runningMax = avg1Rm;
-      return { rawDate: item.completed_at, date: fmtDate(item.completed_at), oneRm: avg1Rm, isPR };
-    } else {
-      const isPR = item._calc1RM > runningMax;
-      if (isPR) runningMax = item._calc1RM;
-      return { rawDate: item.completed_at, date: fmtDate(item.completed_at), oneRm: item._calc1RM, isPR, weekIndex: item._weekIndex };
-    }
-  });
-}
-
-function KpiCard({ icon: Icon, label, value, unit, delta, accent }) {
-  const up = delta >= 0;
-  return (
-    <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 flex flex-col gap-3 min-w-0">
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] uppercase tracking-wider text-[#8A919C]">{label}</span>
-        <Icon size={16} color={accent} />
-      </div>
-      <div className="flex items-baseline gap-1">
-        <span className="text-[28px] leading-none font-semibold tabular-nums" style={{ fontFamily: "'Oswald', sans-serif" }}>
-          {value}
-        </span>
-        {unit && <span className="text-xs text-[#8A919C]">{unit}</span>}
-      </div>
-      {delta !== null && delta !== undefined && !isNaN(delta) && (
-        <div className={`flex items-center gap-1 text-xs ${up ? "text-[#4FD1C5]" : "text-[#EF7B57]"}`}>
-          {up ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
-          <span>{Math.abs(delta).toFixed(1)}% vs prior period</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MetricCard({ icon: Icon, label, value, unit, accent, subtitle, subtitleColor }) {
-  return (
-    <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 flex flex-col gap-3 min-w-0">
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] uppercase tracking-wider text-[#8A919C]">{label}</span>
-        <Icon size={16} color={accent} />
-      </div>
-      <div className="flex items-baseline gap-1">
-        <span className="text-[28px] leading-none font-semibold tabular-nums" style={{ fontFamily: "'Oswald', sans-serif" }}>
-          {value}
-        </span>
-        {unit && <span className="text-xs text-[#8A919C]">{unit}</span>}
-      </div>
-      {subtitle && <div className="text-xs" style={{ color: subtitleColor || "#8A919C" }}>{subtitle}</div>}
-    </div>
-  );
-}
-
-function CustomTooltip({ active, payload, label, suffix }) {
-  if (!active || !payload || !payload.length) return null;
-  return (
-    <div className="rounded-lg border border-[#2A2F38] bg-[#1B1F26] px-3 py-2 text-xs shadow-lg">
-      <div className="text-[#8A919C] mb-1">{label}</div>
-      {payload.map((p) => (
-        <div key={p.dataKey} className="flex items-center gap-2" style={{ color: p.color }}>
-          <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />
-          <span className="text-[#E7E9EC]">
-            {p.name}: {p.value}
-            {suffix || ""}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function RadarTooltip({ active, payload }) {
-  if (!active || !payload || !payload.length) return null;
-  const data = payload[0].payload;
-  return (
-    <div className="rounded-lg border border-[#2A2F38] bg-[#1B1F26] px-3 py-2 text-xs shadow-lg space-y-1">
-      <div className="font-semibold text-[#E7E9EC]">{data.subject}</div>
-      <div className="text-[#8A919C] flex justify-between gap-4">
-        <span>Sets:</span>
-        <span className="text-[#F4B740] font-semibold">{data.sets}</span>
-      </div>
-      <div className="text-[#8A919C] flex justify-between gap-4">
-        <span>Volume:</span>
-        <span className="text-[#4FD1C5] font-semibold">{data.volume.toLocaleString()} kg</span>
-      </div>
-    </div>
-  );
+  return data || [];
 }
 
 export default function WorkoutDashboard() {
@@ -326,6 +133,7 @@ export default function WorkoutDashboard() {
   const [rawLogs, setRawLogs] = useState([]);
   const [bodyMetrics, setBodyMetrics] = useState([]);
   const [muscleMapRows, setMuscleMapRows] = useState(null);
+  const [trainingGoals, setTrainingGoals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
 
@@ -333,14 +141,16 @@ export default function WorkoutDashboard() {
     try {
       setLoading(true);
       setErrorMsg(null);
-      const [logsData, metricsData, muscleMapData] = await Promise.all([
+      const [logsData, metricsData, muscleMapData, goalsData] = await Promise.all([
         fetchWorkoutLogs(),
         fetchBodyMetrics(),
-        fetchMuscleMap()
+        fetchMuscleMap(),
+        fetchTrainingGoals()
       ]);
       console.log("Raw Supabase Data Loaded:", logsData);
       console.log("Raw Body Metrics Loaded:", metricsData);
       console.log("Raw Muscle Map Loaded:", muscleMapData);
+      console.log("Raw Training Goals Loaded:", goalsData);
       
       // Sanitize logs: filter out invalid/empty rows and normalize workout_id
       const sanitized = (logsData || [])
@@ -353,6 +163,7 @@ export default function WorkoutDashboard() {
       setRawLogs(sanitized);
       setBodyMetrics(metricsData || []);
       setMuscleMapRows(muscleMapData || []);
+      setTrainingGoals(goalsData || []);
     } catch (err) {
       console.error("Failed to load workout logs or body metrics from Supabase:", err);
       setErrorMsg(err.message || "Failed to load database rows");
@@ -1487,735 +1298,56 @@ export default function WorkoutDashboard() {
 
             {/* Insights View */}
             {activeTab === "insights" && (
-              <>
-                {/* KPI Row 1 */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 relative z-0">
-                  <KpiCard icon={Flame} label="Total Volume" value={Math.round(totalVolume).toLocaleString()} unit="kg" delta={volumeDelta} accent="#F4B740" />
-                  <KpiCard
-                    icon={Trophy}
-                    label={selectedExerciseId === "all" ? "Best 1RM · Overall" : `Best 1RM · ${activeExercise.title}`}
-                    value={currentBest1RM}
-                    unit="kg"
-                    delta={oneRmDelta}
-                    accent="#EF7B57"
-                  />
-                  <KpiCard icon={Activity} label="Avg RPE" value={avgRpe.toFixed(1)} unit="/ 10" delta={rpeDelta} accent="#7FA6FF" />
-                  <KpiCard icon={CalendarCheck} label="Sessions Logged" value={sessionsCount} unit="" delta={sessionsDelta} accent="#4FD1C5" />
-                </div>
-
-                {/* KPI Row 2 — training-science metrics */}
-                <div className="relative z-0">
-                  <p className="text-[11px] uppercase tracking-wider text-[#8A919C] mb-2">Load &amp; Recovery</p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <MetricCard
-                      icon={Rocket}
-                      label={selectedExerciseId === "all" ? "Progress Rate · Overall" : `Progress Rate · ${activeExercise.title}`}
-                      value={`${overallProgressRateStats.slope >= 0 ? "+" : ""}${overallProgressRateStats.slope.toFixed(1)}`}
-                      unit="kg/session"
-                      accent={overallProgressRateStats.slope >= 0 ? "#4FD1C5" : "#EF7B57"}
-                      subtitle={`${overallProgressRateStats.slopePct >= 0 ? "+" : ""}${overallProgressRateStats.slopePct.toFixed(1)}% trajectory`}
-                      subtitleColor={overallProgressRateStats.slope >= 0 ? "#4FD1C5" : "#EF7B57"}
-                    />
-                    <MetricCard
-                      icon={Gauge}
-                      label="ACWR (Latest Week)"
-                      value={currentAcwr.toFixed(2)}
-                      unit=""
-                      accent={acwrInfo.color}
-                      subtitle={acwrInfo.label}
-                      subtitleColor={acwrInfo.color}
-                    />
-                  </div>
-                </div>
-
-                {/* Muscle Split Balance Radar Chart Card */}
-                <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0">
-                  <div className="flex flex-col md:grid md:grid-cols-12 gap-6 items-center">
-                    {/* Left: Radar Chart */}
-                    <div className="w-full md:col-span-7 flex flex-col items-center">
-                      <div className="w-full h-[220px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <RadarChart cx="50%" cy="50%" outerRadius="75%" data={radarChartData}>
-                            <PolarGrid stroke="#232830" />
-                            <PolarAngleAxis dataKey="subject" tick={{ fill: "#8A919C", fontSize: 10, fontWeight: 500 }} />
-                            <PolarRadiusAxis 
-                              angle={30} 
-                              domain={[0, 'auto']} 
-                              tick={{ fill: "#8A919C", fontSize: 8 }} 
-                              axisLine={false}
-                              tickLine={false}
-                            />
-                            <Radar
-                              name={radarMetric === "sets" ? "Sets" : "Volume"}
-                              dataKey={radarMetric}
-                              stroke="#F4B740"
-                              fill="#F4B740"
-                              fillOpacity={0.18}
-                            />
-                            <Tooltip content={<RadarTooltip />} />
-                          </RadarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-
-                    {/* Right: Info and Stats breakdown list */}
-                    <div className="w-full md:col-span-5 space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h2 className="text-sm font-semibold tracking-wide">Muscle Split Balance</h2>
-                          <p className="text-xs text-[#8A919C]">Workload distribution across splits</p>
-                        </div>
-                        {/* Interactive Toggle */}
-                        <div className="flex bg-[#0C0E12] rounded-lg p-0.5 border border-[#232830] shrink-0">
-                          <button
-                            onClick={() => setRadarMetric("sets")}
-                            className={`text-[10px] font-semibold px-2 py-1 rounded-md transition-all ${
-                              radarMetric === "sets"
-                                ? "bg-[#232830] text-[#E7E9EC]"
-                                : "text-[#8A919C] hover:text-[#E7E9EC]"
-                            }`}
-                          >
-                            Sets
-                          </button>
-                          <button
-                            onClick={() => setRadarMetric("volume")}
-                            className={`text-[10px] font-semibold px-2 py-1 rounded-md transition-all ${
-                              radarMetric === "volume"
-                                ? "bg-[#232830] text-[#E7E9EC]"
-                                : "text-[#8A919C] hover:text-[#E7E9EC]"
-                            }`}
-                          >
-                            Volume
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Distribution List */}
-                      <div className="space-y-3 pt-1">
-                        {radarChartData.map((item) => {
-                          const pct = radarMetric === "sets" ? item.pctSets : item.pctVolume;
-                          const displayVal = radarMetric === "sets" 
-                            ? `${item.sets} ${item.sets === 1 ? 'set' : 'sets'}` 
-                            : `${item.volume.toLocaleString()} kg`;
-                          
-                          // Determine a specific color accent for each split
-                          let splitColor = "#8A919C";
-                          if (item.subject === "Back") splitColor = "#EF7B57";
-                          else if (item.subject === "Chest") splitColor = "#F4B740";
-                          else if (item.subject === "Arm") splitColor = "#7FA6FF";
-                          else if (item.subject === "Core") splitColor = "#EC4899";
-                          else if (item.subject === "Legs") splitColor = "#4FD1C5";
-
-                          return (
-                            <div key={item.subject} className="space-y-1">
-                              <div className="flex justify-between items-center text-xs">
-                                <span className="font-semibold text-[#E7E9EC] flex items-center gap-1.5">
-                                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: splitColor }} />
-                                  {item.subject}
-                                </span>
-                                <span className="text-[#8A919C] font-mono">
-                                  {displayVal} <span className="text-[#E7E9EC]/80 font-bold ml-1">({pct}%)</span>
-                                </span>
-                              </div>
-                              <div className="w-full h-1.5 rounded-full bg-[#0C0E12] overflow-hidden border border-[#232830]/50">
-                                <div 
-                                  className="h-full rounded-full transition-all duration-500" 
-                                  style={{ width: `${pct}%`, backgroundColor: splitColor }}
-                                />
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Volume & RPE Trend Grid (Moved UP below KPIs) */}
-                <div className="grid md:grid-cols-2 gap-6 relative z-0">
-                  {/* Volume by muscle group */}
-                  <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5">
-                    <h2 className="text-sm font-semibold mb-1">Volume by Muscle Group</h2>
-                    <p className="text-xs text-[#8A919C] mb-4">Weekly kg lifted across categories</p>
-                    <ResponsiveContainer width="100%" height={200}>
-                      <BarChart data={volumeByMuscle} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                        <CartesianGrid stroke="#1E222A" vertical={false} />
-                        <XAxis dataKey="name" tick={{ fill: "#8A919C", fontSize: 10 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
-                        <YAxis tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} />
-                        <Tooltip content={<CustomTooltip suffix=" kg" />} />
-                        {muscleGroups.map((mg) => (
-                          <Bar key={mg} dataKey={mg} stackId="vol" fill={MUSCLE_COLORS[mg] || "#8A919C"} radius={[2, 2, 0, 0]} />
-                        ))}
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-
-                  {/* RPE trend */}
-                  <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5">
-                    <h2 className="text-sm font-semibold mb-1">Fatigue — RPE Trend</h2>
-                    <p className="text-xs text-[#8A919C] mb-4">
-                      Avg RPE per session for {selectedExerciseId === "all" ? "Overall Workouts" : activeExercise.title}
-                    </p>
-                    <ResponsiveContainer width="100%" height={200}>
-                      <AreaChart data={rpeSeries} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="rpeFill" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#7FA6FF" stopOpacity={0.35} />
-                            <stop offset="100%" stopColor="#7FA6FF" stopOpacity={0} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid stroke="#1E222A" vertical={false} />
-                        <XAxis dataKey="date" tick={{ fill: "#8A919C", fontSize: 10 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
-                        <YAxis domain={[4, 10]} tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} />
-                        <ReferenceLine y={9} stroke="#EF7B57" strokeDasharray="3 3" strokeOpacity={0.5} />
-                        <Tooltip content={<CustomTooltip suffix=" RPE" />} />
-                        <Area type="monotone" dataKey="rpe" name="RPE" stroke="#7FA6FF" strokeWidth={2} fill="url(#rpeFill)" />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-
-                {/* 1RM Trend */}
-                <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0 space-y-3">
-                  {selectedExercisePlateauStatus.isPlateaued && (
-                    <div className="rounded-lg border border-[#F4B740]/30 bg-[#F4B740]/5 p-3 flex items-start gap-2 text-xs text-[#F4B740] transition-all">
-                      <AlertTriangle size={15} className="shrink-0 mt-0.5" />
-                      <div>
-                        <span className="font-semibold block">Training Plateau Detected</span>
-                        No meaningful change in estimated 1RM has been achieved in the last {selectedExercisePlateauStatus.sessionsFlat} sessions (since {fmtDate(selectedExercisePlateauStatus.sinceDate)}). Consider altering your rep ranges or exercise variation to break the adaptation.
-                      </div>
-                    </div>
-                  )}
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <h2 className="text-sm font-semibold">Progressive Overload — Est. 1RM</h2>
-                      <p className="text-xs text-[#8A919C]">
-                        Gold dot = peak PR record ({selectedExerciseId === "all" ? "Overall" : activeExercise.title})
-                      </p>
-                    </div>
-                  </div>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <LineChart data={oneRmSeries} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                      <CartesianGrid stroke="#1E222A" vertical={false} />
-                      <XAxis dataKey="date" tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
-                      <YAxis tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} domain={["dataMin - 5", "dataMax + 5"]} />
-                      <Tooltip content={<CustomTooltip suffix=" kg" />} />
-                      <Line
-                        type="monotone"
-                        dataKey="oneRm"
-                        name="Est. 1RM"
-                        stroke="#F4B740"
-                        strokeWidth={2}
-                        dot={(props) => {
-                          const { cx, cy, payload, index } = props;
-                          return (
-                            <circle
-                              key={`dot-${index}`}
-                              cx={cx}
-                              cy={cy}
-                              r={payload.isPR ? 5 : 3}
-                              fill={payload.isPR ? "#F4B740" : "#0C0E12"}
-                              stroke="#F4B740"
-                              strokeWidth={payload.isPR ? 0 : 2}
-                            />
-                          );
-                        }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-
-                {/* ACWR Chart */}
-                <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0">
-                  <h2 className="text-sm font-semibold mb-1">Training Load — Acute:Chronic Workload Ratio</h2>
-                  <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                    <p className="text-xs text-[#8A919C]">Volume vs trailing 4-week moving average</p>
-                    <div className="flex flex-wrap gap-x-3 gap-y-1.5">
-                      <div className="flex items-center gap-1.5 text-[10px] text-[#8A919C]">
-                        <span className="w-2.5 h-2.5 rounded bg-[#7FA6FF]/20 border border-[#7FA6FF]/40 inline-block" />
-                        <span>Under-trained (&lt;0.8)</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-[10px] text-[#8A919C]">
-                        <span className="w-2.5 h-2.5 rounded bg-[#4FD1C5]/20 border border-[#4FD1C5]/40 inline-block" />
-                        <span>Sweet Spot (0.8 - 1.3)</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-[10px] text-[#8A919C]">
-                        <span className="w-2.5 h-2.5 rounded bg-[#F4B740]/25 border border-[#F4B740]/45 inline-block" />
-                        <span>Caution (1.3 - 1.5)</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-[10px] text-[#8A919C]">
-                        <span className="w-2.5 h-2.5 rounded bg-[#EF7B57]/25 border border-[#EF7B57]/45 inline-block" />
-                        <span>Danger Zone (&gt;1.5)</span>
-                      </div>
-                    </div>
-                  </div>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <LineChart data={visibleWeeklyStats.filter(w => w.date).map((w) => ({ ...w, label: fmtDate(w.date) }))} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                      <CartesianGrid stroke="#1E222A" vertical={false} />
-                      <XAxis dataKey="label" tick={{ fill: "#8A919C", fontSize: 10 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
-                      <YAxis domain={[0, 1.8]} tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} />
-                      <ReferenceArea y1={0} y2={0.8} fill="#7FA6FF" fillOpacity={0.08} />
-                      <ReferenceArea y1={0.8} y2={1.3} fill="#4FD1C5" fillOpacity={0.08} />
-                      <ReferenceArea y1={1.3} y2={1.5} fill="#F4B740" fillOpacity={0.1} />
-                      <ReferenceArea y1={1.5} y2={1.8} fill="#EF7B57" fillOpacity={0.1} />
-                      <Tooltip content={<CustomTooltip suffix="" />} />
-                      <Line type="monotone" dataKey="acwr" name="ACWR" stroke="#E7E9EC" strokeWidth={2} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-
-                {/* Live Log Records Table (Sortable headers added) */}
-                <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0">
-                  <h2 className="text-sm font-semibold mb-3">Live Log Records</h2>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="text-left text-[#8A919C] border-b border-[#232830]">
-                          <th className="py-2 pr-3 font-medium cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("completed_at")}>
-                            Date {sortColumn === "completed_at" && (sortDirection === "asc" ? "▲" : "▼")}
-                          </th>
-                          <th className="py-2 pr-3 font-medium cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("title")}>
-                            Exercise {sortColumn === "title" && (sortDirection === "asc" ? "▲" : "▼")}
-                          </th>
-                          <th className="py-2 pr-3 font-medium cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("muscle_group")}>
-                            Muscle {sortColumn === "muscle_group" && (sortDirection === "asc" ? "▲" : "▼")}
-                          </th>
-                          <th className="py-2 pr-3 font-medium text-[#8A919C]">
-                            Secondary
-                          </th>
-                          <th className="py-2 pr-3 font-medium text-right cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("weight_kg")}>
-                            Weight {sortColumn === "weight_kg" && (sortDirection === "asc" ? "▲" : "▼")}
-                          </th>
-                          <th className="py-2 pr-3 font-medium text-right cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("reps")}>
-                            Reps {sortColumn === "reps" && (sortDirection === "asc" ? "▲" : "▼")}
-                          </th>
-                          <th className="py-2 pr-3 font-medium text-right cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("rpe")}>
-                            RPE {sortColumn === "rpe" && (sortDirection === "asc" ? "▲" : "▼")}
-                          </th>
-                          <th className="py-2 pr-3 font-medium text-right cursor-pointer select-none hover:text-[#E7E9EC] transition-colors" onClick={() => handleSort("est1rm")}>
-                            Est. 1RM {sortColumn === "est1rm" && (sortDirection === "asc" ? "▲" : "▼")}
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {recentSets.map((r, i) => (
-                          <tr key={r.id || i} className={i % 2 ? "bg-[#0F1216]" : ""}>
-                            <td className="py-2 pr-3 text-[#8A919C] whitespace-nowrap">
-                              {fmtDate(r.completed_at)}
-                            </td>
-                            <td className="py-2 pr-3 font-medium">{r.title || r.work_id}</td>
-                            <td className="py-2 pr-3">
-                              <span
-                                className="px-1.5 py-0.5 rounded text-[10px]"
-                                style={{
-                                  background: `${MUSCLE_COLORS[r.muscle_group] || "#8A919C"}22`,
-                                  color: MUSCLE_COLORS[r.muscle_group] || "#8A919C"
-                                }}
-                              >
-                                {r.muscle_group || "General"}
-                              </span>
-                            </td>
-                            <td className="py-2 pr-3">
-                              {(() => {
-                                const secondaryMuscles = getMusclesForExercise(r.title || r.work_id, muscleMapLookup, r.muscle_group)
-                                  .filter(m => m.role === 'secondary');
-                                if (secondaryMuscles.length === 0) {
-                                  return <span className="text-[#8A919C]">—</span>;
-                                }
-                                return (
-                                  <div className="flex flex-wrap gap-1">
-                                    {secondaryMuscles.map((sm, idx) => (
-                                      <span
-                                        key={idx}
-                                        className="px-1 py-0.2 rounded text-[9px] whitespace-nowrap"
-                                        style={{
-                                          background: `${MUSCLE_COLORS[sm.muscle_group] || "#8A919C"}22`,
-                                          color: MUSCLE_COLORS[sm.muscle_group] || "#8A919C"
-                                        }}
-                                      >
-                                        {sm.muscle_group}
-                                      </span>
-                                    ))}
-                                  </div>
-                                );
-                              })()}
-                            </td>
-                            <td className="py-2 pr-3 text-right tabular-nums">{r.weight_kg ?? 0} kg</td>
-                            <td className="py-2 pr-3 text-right tabular-nums">{r.reps ?? 0}</td>
-                            <td className="py-2 pr-3 text-right tabular-nums">{r.rpe ?? "-"}</td>
-                            <td className="py-2 pr-3 text-right tabular-nums">{estOneRM(r.weight_kg, r.reps)} kg</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Pagination Controls */}
-                  <div className="flex flex-wrap items-center justify-between gap-4 border-t border-[#232830] pt-4 mt-4 text-xs text-[#8A919C] transition-all">
-                    <div className="flex items-center gap-1.5">
-                      <span>Rows per page:</span>
-                      <select
-                        value={pageSize}
-                        onChange={(e) => {
-                          setPageSize(Number(e.target.value));
-                          setCurrentPage(1);
-                        }}
-                        className="bg-[#15181D] border border-[#232830] rounded px-1.5 py-1 text-xs text-[#E7E9EC] focus:ring-0 focus:outline-none cursor-pointer"
-                      >
-                        <option value={15}>15</option>
-                        <option value={25}>25</option>
-                        <option value={50}>50</option>
-                      </select>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span>
-                        Showing {sortedTableLogs.length === 0 ? 0 : (currentPage - 1) * pageSize + 1} -{" "}
-                        {Math.min(currentPage * pageSize, sortedTableLogs.length)} of {sortedTableLogs.length}
-                      </span>
-                      
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                          disabled={currentPage === 1}
-                          className="p-1 rounded bg-[#1B1F26] border border-[#232830] hover:bg-[#232830] hover:text-[#E7E9EC] disabled:opacity-40 disabled:hover:bg-[#1B1F26] disabled:hover:text-[#8A919C] transition-colors"
-                        >
-                          <ChevronLeft size={14} />
-                        </button>
-                        <button
-                          onClick={() => setCurrentPage(prev => Math.min(Math.ceil(sortedTableLogs.length / pageSize), prev + 1))}
-                          disabled={currentPage >= Math.ceil(sortedTableLogs.length / pageSize)}
-                          className="p-1 rounded bg-[#1B1F26] border border-[#232830] hover:bg-[#232830] hover:text-[#E7E9EC] disabled:opacity-40 disabled:hover:bg-[#1B1F26] disabled:hover:text-[#8A919C] transition-colors"
-                        >
-                          <ChevronRight size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <TrainingCalendarHeatmap data={dailyFatigueMap} anchorDate={anchorDate} />
-              </>
+              <InsightsTab
+                totalVolume={totalVolume}
+                volumeDelta={volumeDelta}
+                selectedExerciseId={selectedExerciseId}
+                activeExercise={activeExercise}
+                currentBest1RM={currentBest1RM}
+                oneRmDelta={oneRmDelta}
+                avgRpe={avgRpe}
+                rpeDelta={rpeDelta}
+                sessionsCount={sessionsCount}
+                sessionsDelta={sessionsDelta}
+                overallProgressRateStats={overallProgressRateStats}
+                currentAcwr={currentAcwr}
+                acwrInfo={acwrInfo}
+                radarChartData={radarChartData}
+                radarMetric={radarMetric}
+                setRadarMetric={setRadarMetric}
+                volumeByMuscleGroupData={volumeByMuscleGroupData}
+                recentSets={recentSets}
+                currentPage={currentPage}
+                setCurrentPage={setCurrentPage}
+                pageSize={pageSize}
+                setPageSize={setPageSize}
+                sortedTableLogs={sortedTableLogs}
+                dailyFatigueMap={dailyFatigueMap}
+                anchorDate={anchorDate}
+                muscleMapLookup={muscleMapLookup}
+                handleSort={handleSort}
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                exportToCSV={exportToCSV}
+              />
             )}
 
             {/* AI Decision Engine View */}
             {activeTab === "decision" && (
-              <div className="space-y-6">
-                {/* Decision Header/Summary */}
-                <div className="rounded-xl border border-[#232830] bg-gradient-to-r from-[#15181D] to-[#1C1F26] p-6 space-y-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-[#F4B740]/10 border border-[#F4B740]/30 flex items-center justify-center">
-                      <Brain size={20} color="#F4B740" />
-                    </div>
-                    <div>
-                      <h2 className="text-lg font-semibold tracking-tight text-[#E7E9EC]" style={{ fontFamily: "'Oswald', sans-serif" }}>
-                        AI DECISION ENGINE
-                      </h2>
-                      <p className="text-xs text-[#8A919C]">
-                        Personalized training advice powered by your Supabase workout logs
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid md:grid-cols-2 gap-6">
-                  {/* Card 1: Recovery Status */}
-                  <div className="rounded-xl border border-[#232830] bg-[#15181D] p-5 flex flex-col justify-between space-y-4">
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] uppercase tracking-wider text-[#8A919C]">Recovery Status</span>
-                        <Timer size={16} className="text-[#F4B740]" />
-                      </div>
-                      
-                      {recoveryStatus ? (
-                        <div className="space-y-4 pt-2">
-                          <div className="flex items-baseline gap-2">
-                            {recoveryStatus.isRecovered ? (
-                              <div className="flex flex-col gap-1">
-                                <span className="text-2xl font-semibold text-[#4FD1C5] flex items-center gap-2" style={{ fontFamily: "'Oswald', sans-serif" }}>
-                                  <CheckCircle2 size={24} /> FULLY RECOVERED
-                                </span>
-                                <span className="text-xs text-[#8A919C]">Ready for maximum physical stimulus.</span>
-                              </div>
-                            ) : (
-                              <div className="flex flex-col gap-1">
-                                <span className="text-3xl font-bold font-mono tracking-tight text-[#E7E9EC]">
-                                  {recoveryStatus.countdownStr}
-                                </span>
-                                <span className="text-xs text-[#8A919C]">Remaining until fully recovered.</span>
-                              </div>
-                            )}
-                          </div>
-                          
-                          {/* Recovery Progress Bar */}
-                          <div className="space-y-1">
-                            <div className="flex justify-between text-[11px] text-[#8A919C] font-semibold">
-                              <span>Total Recovery Progress</span>
-                              <span className="text-[#E7E9EC]">{recoveryStatus.pct}%</span>
-                            </div>
-                            <div className="w-full h-2.5 rounded-full bg-[#0C0E12] overflow-hidden border border-[#232830]">
-                              <div 
-                                className="h-full rounded-full transition-all duration-1000 bg-gradient-to-r from-[#F4B740] to-[#4FD1C5]" 
-                                style={{ width: `${recoveryStatus.pct}%` }}
-                              />
-                            </div>
-                          </div>
-                          
-                          <div className="text-xs space-y-1.5 border-t border-[#232830]/50 pt-3 text-[#8A919C]">
-                            <div className="flex justify-between">
-                              <span>Latest Workout:</span>
-                              <span className="text-[#E7E9EC] font-mono">
-                                {recoveryDetails.completedTime.toLocaleDateString("en-US", { month: "short", day: "numeric" })} at {recoveryDetails.completedTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>Intensity (RPE):</span>
-                              <span className="text-[#E7E9EC] font-semibold">{recoveryDetails.rpe} / 10</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>Recommended Rest:</span>
-                              <span className="text-[#E7E9EC] font-semibold">{recoveryDetails.restHours} Hours</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>Recovery Complete:</span>
-                              <span className="text-[#E7E9EC] font-mono">
-                                {recoveryDetails.targetTime.toLocaleDateString("en-US", { month: "short", day: "numeric" })} at {recoveryDetails.targetTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="text-xs text-[#8A919C] pt-2">No recovery data available. Add a workout log to start tracking.</p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Card 2: Next Workout & Muscle Prioritization */}
-                  <div className="rounded-xl border border-[#232830] bg-[#15181D] p-5 flex flex-col justify-between space-y-4">
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] uppercase tracking-wider text-[#8A919C]">Training Recommendation</span>
-                        <Dumbbell size={16} className="text-[#F4B740]" />
-                      </div>
-                      
-                      {musclePriorities.recommended ? (
-                        <div className="space-y-3">
-                          <div className="bg-[#0C0E12] rounded-lg border border-[#232830] p-3 space-y-3">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <span className="text-[10px] uppercase tracking-wider text-[#8A919C] block">Target Split</span>
-                                <span className="text-xl font-semibold text-[#F4B740]" style={{ fontFamily: "'Oswald', sans-serif" }}>
-                                  {`${getTrainingSplit(musclePriorities.recommended.muscle).split.toUpperCase()} (${getTrainingSplit(musclePriorities.recommended.muscle).detail.toUpperCase()})`}
-                                </span>
-                              </div>
-                              <div className="px-3 py-1 rounded text-xs font-semibold bg-[#4FD1C5]/10 text-[#4FD1C5] border border-[#4FD1C5]/30">
-                                {musclePriorities.recommended.isRecovered ? "Ready" : "Recovering"}
-                              </div>
-                            </div>
-                            
-                            <div className="border-t border-[#232830]/50 pt-2.5 space-y-1">
-                              <span className="text-[10px] uppercase tracking-wider text-[#8A919C] block">Recommended Workout Split</span>
-                              {aiCoachingLoading ? (
-                                <div className="h-4 bg-[#8A919C]/20 rounded w-2/3 animate-pulse" />
-                              ) : (
-                                <span className="text-xs font-medium text-[#E7E9EC] block">
-                                  {aiCoaching?.recommendedSplit || `${musclePriorities.recommended.muscle.charAt(0).toUpperCase() + musclePriorities.recommended.muscle.slice(1)} Focus Session`}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          
-                          {/* Muscle status breakdowns */}
-                          <div className="space-y-2.5">
-                            <span className="text-[11px] text-[#8A919C] uppercase tracking-wider block font-semibold border-b border-[#232830]/50 pb-1.5">
-                              Muscle Group Status
-                            </span>
-                            
-                            <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
-                              {/* Fully Recovered Muscles */}
-                              {musclePriorities.fullyRecovered.map(m => (
-                                <div key={m.muscle} className="flex justify-between items-center text-xs">
-                                  <span className="text-[#E7E9EC] capitalize font-medium">{m.muscle}</span>
-                                  <span className="text-[#4FD1C5] font-semibold text-[11px] flex items-center gap-1">
-                                    <CheckCircle2 size={12} /> Rested {m.daysSince} days
-                                  </span>
-                                </div>
-                              ))}
-                              
-                              {/* Recovering Muscles */}
-                              {musclePriorities.recovering.map(m => (
-                                <div key={m.muscle} className="flex justify-between items-center text-xs">
-                                  <span className="text-[#E7E9EC]/70 capitalize">{m.muscle}</span>
-                                  <span className="text-[#F4B740] font-semibold text-[11px] flex items-center gap-1">
-                                    <AlertTriangle size={12} /> Rest {Math.round(m.hoursRemaining)}h left
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="text-xs text-[#8A919C]">No muscle group logs found to analyze priorities.</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* AI Block Assessment Status */}
-                {blockAssessmentLoading ? (
-                  <div className="rounded-xl border border-[#232830] bg-[#15181D] p-5 space-y-3 animate-pulse">
-                    <div className="flex items-center justify-between">
-                      <div className="h-4 bg-[#8A919C]/20 rounded w-1/3" />
-                      <div className="w-4 h-4 rounded bg-[#8A919C]/20" />
-                    </div>
-                    <div className="h-4 bg-[#8A919C]/20 rounded w-2/3" />
-                    <div className="h-10 bg-[#8A919C]/20 rounded w-full" />
-                  </div>
-                ) : blockAssessment ? (
-                  <div className={`rounded-xl border p-5 space-y-4 transition-all duration-300 ${
-                    blockAssessment.deloadRecommended
-                      ? "border-[#F4B740] bg-[#15181D] shadow-lg shadow-[#F4B740]/5"
-                      : "border-[#232830] bg-[#15181D]"
-                  }`}>
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] uppercase tracking-wider text-[#8A919C]">Training Block Status</span>
-                      <Flame size={16} className={blockAssessment.deloadRecommended ? "text-[#F4B740]" : "text-[#8A919C]"} />
-                    </div>
-
-                    <div className="space-y-3">
-                      <div>
-                        <span className="text-[10px] uppercase tracking-wider text-[#8A919C] block">Current Phase Assessment</span>
-                        <span className={`text-base font-semibold block ${blockAssessment.deloadRecommended ? "text-[#F4B740]" : "text-[#E7E9EC]"}`} style={{ fontFamily: "'Oswald', sans-serif" }}>
-                          {blockAssessment.phaseAssessment.toUpperCase()}
-                        </span>
-                      </div>
-
-                      {blockAssessment.deloadRecommended ? (
-                        <div className="rounded-lg border border-[#F4B740]/30 bg-[#F4B740]/5 p-3.5 space-y-2">
-                          <div className="flex items-center gap-1.5 text-xs text-[#F4B740] font-semibold">
-                            <AlertTriangle size={15} />
-                            <span>DELOAD RECOMMENDED</span>
-                          </div>
-                          <div className="text-xs text-[#8A919C] space-y-1">
-                            <p className="leading-relaxed">
-                              <strong className="text-[#E7E9EC]">Recommended Window: </strong> 
-                              <span className="text-[#F4B740] font-semibold">{blockAssessment.deloadWindow}</span>
-                            </p>
-                            <p className="leading-relaxed font-mono text-[11px]">
-                              {blockAssessment.reasoning}
-                            </p>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="rounded-lg border border-[#4FD1C5]/20 bg-[#4FD1C5]/5 p-3.5 space-y-1">
-                          <div className="flex items-center gap-1.5 text-xs text-[#4FD1C5] font-semibold">
-                            <CheckCircle2 size={15} />
-                            <span>BLOCK PROGRESSING NORMALLY</span>
-                          </div>
-                          <p className="text-xs text-[#8A919C] leading-relaxed">
-                            {blockAssessment.reasoning}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ) : null}
-
-                {/* Card 3: AI Projections & Overload Targets */}
-                {fatigueInfo ? (
-                  <div className="rounded-xl border border-[#232830] bg-[#15181D] p-5 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] uppercase tracking-wider text-[#8A919C]">AI Fatigue &amp; Overload Projection</span>
-                      <Brain size={16} className="text-[#F4B740]" />
-                    </div>
-
-                    <div className="grid md:grid-cols-2 gap-4">
-                      {/* Fatigue Predictor */}
-                      <div className="bg-[#0C0E12] rounded-lg border border-[#232830] p-4 flex flex-col justify-between space-y-2">
-                        <div>
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-[11px] text-[#8A919C] font-semibold">Predicted Fatigue Level</span>
-                            <span 
-                              className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider" 
-                              style={{ 
-                                background: `${fatigueInfo.fatigueColor}22`, 
-                                color: fatigueInfo.fatigueColor,
-                                border: `1px solid ${fatigueInfo.fatigueColor}40`
-                              }}
-                            >
-                              {fatigueInfo.fatigueLevel}
-                            </span>
-                          </div>
-                          <p className="text-xs text-[#8A919C] leading-relaxed">
-                            {fatigueInfo.fatigueDetails}
-                          </p>
-                        </div>
-                        {recommendedExerciseInjuryRisk && recommendedExerciseInjuryRisk.level !== "none" && (
-                          <div className="rounded border border-[#EF7B57]/30 bg-[#EF7B57]/5 p-2 flex items-start gap-1.5 text-[11px] text-[#EF7B57] transition-all">
-                            <AlertOctagon size={13} className="shrink-0 mt-0.5" />
-                            <div>
-                              <span className="font-semibold block uppercase tracking-wider text-[9px] text-[#EF7B57]/90">
-                                {recommendedExerciseInjuryRisk.level === "elevated" ? "Elevated Injury Risk" : "Injury Watch"}
-                              </span>
-                              {recommendedExerciseInjuryRisk.reason}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Progressive Overload Projections */}
-                      <div className="bg-[#0C0E12] rounded-lg border border-[#232830] p-4 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] text-[#8A919C] font-semibold">Next Target Exercise</span>
-                          <span className="text-[#E7E9EC] text-[11px] font-medium font-mono">{fatigueInfo.exerciseName}</span>
-                        </div>
-                        <div className="text-xs space-y-1 text-[#8A919C]">
-                          <div className="flex justify-between">
-                            <span>Last Logged Session:</span>
-                            <span className="text-[#E7E9EC] font-semibold font-mono">{fatigueInfo.lastWeight} kg x {fatigueInfo.lastReps} reps</span>
-                          </div>
-                          <div className="pt-2 border-t border-[#232830] mt-2">
-                            {aiCoachingLoading ? (
-                              <div className="flex items-center gap-1.5 text-[#F4B740] animate-pulse">
-                                <span className="w-3.5 h-3.5 rounded-full border-2 border-t-transparent border-[#F4B740] animate-spin inline-block shrink-0" />
-                                <span>Generating AI targets...</span>
-                              </div>
-                            ) : (
-                              <span className="text-[#F4B740] font-semibold flex items-center gap-1">
-                                <Rocket size={13} /> {aiCoaching?.targetRecommendation || `Repeat last session: ${fatigueInfo.lastWeight} kg x ${fatigueInfo.lastReps} reps`}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="bg-[#F4B740]/5 rounded-lg border border-[#F4B740]/20 p-4">
-                      <div className="flex gap-2">
-                        <Rocket size={16} className="text-[#F4B740] shrink-0 mt-0.5" />
-                        <div className="space-y-1 w-full">
-                          <span className="text-xs font-semibold text-[#F4B740] block">AI Growth Recommendation</span>
-                          {aiCoachingLoading ? (
-                            <div className="space-y-1.5 py-1.5 animate-pulse w-full">
-                              <div className="h-3 bg-[#8A919C]/20 rounded w-full" />
-                              <div className="h-3 bg-[#8A919C]/20 rounded w-11/12" />
-                              <div className="h-3 bg-[#8A919C]/20 rounded w-3/4" />
-                            </div>
-                          ) : (
-                            <p className="text-xs text-[#8A919C] leading-relaxed">
-                              {aiCoaching?.recommendationText || fatigueInfo.fatigueDetails}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-[#232830] bg-[#15181D] p-5 text-center text-xs text-[#8A919C]">
-                    No projection data could be calculated. Complete more training logs to activate AI fatigue forecasting.
-                  </div>
-                )}
-              </div>
+              <DecisionTab
+                recoveryStatus={recoveryStatus}
+                aiCoachingLoading={aiCoachingLoading}
+                aiCoaching={aiCoaching}
+                musclePriorities={musclePriorities}
+                blockAssessmentLoading={blockAssessmentLoading}
+                blockAssessment={blockAssessment}
+                weeklyStats={weeklyStats}
+                fatigueInfo={fatigueInfo}
+                trainingGoals={trainingGoals}
+                onRefreshGoals={loadData}
+                exercisesList={exercisesList}
+                bodyMetrics={bodyMetrics}
+              />
             )}
 
             {activeTab === "body" && (

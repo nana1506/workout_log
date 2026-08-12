@@ -3,11 +3,10 @@ function estOneRM(weight, reps) {
   return Math.round(weight * (1 + reps / 30) * 10) / 10;
 }
 
-export function exportToCSV(logs, activeExerciseTitle) {
-  if (!logs || !logs.length) return;
-
+export function generateCSVContent(logs) {
   const headers = ["Date", "Exercise Title", "Muscle Group", "Weight (kg)", "Reps", "RPE", "Est. 1RM (kg)"];
-  
+  if (!logs || !logs.length) return headers.join(",");
+
   const rows = logs.map(r => [
     r.completed_at ? r.completed_at.slice(0, 10) : "",
     r.title || r.work_id || "",
@@ -18,7 +17,7 @@ export function exportToCSV(logs, activeExerciseTitle) {
     r.best_1rm || estOneRM(r.weight_kg, r.reps)
   ]);
   
-  const csvContent = [
+  return [
     headers.join(","),
     ...rows.map(row => row.map(val => {
       const str = String(val);
@@ -28,6 +27,12 @@ export function exportToCSV(logs, activeExerciseTitle) {
       return str;
     }).join(","))
   ].join("\n");
+}
+
+export function exportToCSV(logs, activeExerciseTitle) {
+  if (!logs || !logs.length) return;
+
+  const csvContent = generateCSVContent(logs);
   
   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
