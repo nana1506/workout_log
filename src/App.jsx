@@ -1024,7 +1024,7 @@ export default function WorkoutDashboard() {
     exerciseName,
     lastWeight,
     lastReps,
-    recentSecondaryStimulus
+    JSON.stringify(recentSecondaryStimulus)
   ]);
 
   // ---- Block Suggestions calculation and API call ----
