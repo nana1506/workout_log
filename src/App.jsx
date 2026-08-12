@@ -10,6 +10,7 @@ import { exportToCSV } from "./utils/csv";
 import BodyCompositionTab from "./components/BodyCompositionTab";
 import InsightsTab from "./components/InsightsTab";
 import DecisionTab from "./components/DecisionTab";
+import ProgramTab from "./components/ProgramTab";
 import { buildDailyFatigueMap } from "./utils/dailyFatigue";
 import {
   buildMuscleMapLookup,
@@ -89,6 +90,45 @@ export async function fetchTrainingGoals() {
   return data || [];
 }
 
+export async function fetchPrograms() {
+  const { data, error } = await supabase
+    .from('training_programs')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error("Supabase Query Error fetching training_programs:", error);
+    throw error;
+  }
+  return data || [];
+}
+
+export async function fetchProgramDays() {
+  const { data, error } = await supabase
+    .from('program_days')
+    .select('*')
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.error("Supabase Query Error fetching program_days:", error);
+    throw error;
+  }
+  return data || [];
+}
+
+export async function fetchProgramExercises() {
+  const { data, error } = await supabase
+    .from('program_exercises')
+    .select('*')
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.error("Supabase Query Error fetching program_exercises:", error);
+    throw error;
+  }
+  return data || [];
+}
+
 export default function WorkoutDashboard() {
   const [activeTab, setActiveTab] = useState("insights"); // "insights" or "decision"
   const [radarMetric, setRadarMetric] = useState("sets"); // "sets" or "volume"
@@ -135,6 +175,9 @@ export default function WorkoutDashboard() {
   const [bodyMetrics, setBodyMetrics] = useState([]);
   const [muscleMapRows, setMuscleMapRows] = useState(null);
   const [trainingGoals, setTrainingGoals] = useState([]);
+  const [programs, setPrograms] = useState([]);
+  const [programDays, setProgramDays] = useState([]);
+  const [programExercises, setProgramExercises] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
 
@@ -142,16 +185,20 @@ export default function WorkoutDashboard() {
     try {
       setLoading(true);
       setErrorMsg(null);
-      const [logsData, metricsData, muscleMapData, goalsData] = await Promise.all([
+      const [logsData, metricsData, muscleMapData, goalsData, programsData, daysData, exercisesData] = await Promise.all([
         fetchWorkoutLogs(),
         fetchBodyMetrics(),
         fetchMuscleMap(),
-        fetchTrainingGoals()
+        fetchTrainingGoals(),
+        fetchPrograms(),
+        fetchProgramDays(),
+        fetchProgramExercises()
       ]);
       console.log("Raw Supabase Data Loaded:", logsData);
       console.log("Raw Body Metrics Loaded:", metricsData);
       console.log("Raw Muscle Map Loaded:", muscleMapData);
       console.log("Raw Training Goals Loaded:", goalsData);
+      console.log("Raw Programs Loaded:", programsData);
       
       // Sanitize logs: filter out invalid/empty rows and normalize workout_id
       const sanitized = (logsData || [])
@@ -165,6 +212,9 @@ export default function WorkoutDashboard() {
       setBodyMetrics(metricsData || []);
       setMuscleMapRows(muscleMapData || []);
       setTrainingGoals(goalsData || []);
+      setPrograms(programsData || []);
+      setProgramDays(daysData || []);
+      setProgramExercises(exercisesData || []);
     } catch (err) {
       console.error("Failed to load workout logs or body metrics from Supabase:", err);
       setErrorMsg(err.message || "Failed to load database rows");
@@ -179,6 +229,36 @@ export default function WorkoutDashboard() {
 
   const muscleMapLookup = useMemo(() => buildMuscleMapLookup(muscleMapRows || []), [muscleMapRows]);
   const expandedStimulus = useMemo(() => expandLogsWithMuscleStimulus(rawLogs, muscleMapLookup), [rawLogs, muscleMapLookup]);
+
+  const programsWithDays = useMemo(() => {
+    if (!programs.length) return [];
+    
+    return programs.map(program => {
+      const days = programDays
+        .filter(d => d.program_id === program.id)
+        .map(day => {
+          const exercises = programExercises
+            .filter(e => e.day_id === day.id)
+            .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+          return {
+            ...day,
+            exercises
+          };
+        });
+        
+      if (program.schedule_type === 'fixed_days') {
+        const weekdayOrder = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
+        days.sort((a, b) => (weekdayOrder[a.weekday] || 99) - (weekdayOrder[b.weekday] || 99));
+      } else {
+        days.sort((a, b) => (a.day_order || 0) - (b.day_order || 0));
+      }
+      
+      return {
+        ...program,
+        days
+      };
+    });
+  }, [programs, programDays, programExercises]);
 
   // 1. Dynamic Exercise Options built directly from your table
   const exercisesList = useMemo(() => {
@@ -1295,6 +1375,16 @@ export default function WorkoutDashboard() {
               >
                 <Scale size={14} /> Body Composition
               </button>
+              <button
+                onClick={() => setActiveTab("program")}
+                className={`pb-2.5 text-sm font-semibold tracking-wide border-b-2 transition-all flex items-center gap-1.5 ${
+                  activeTab === "program"
+                    ? "border-[#F4B740] text-[#F4B740]"
+                    : "border-transparent text-[#8A919C] hover:text-[#E7E9EC]"
+                }`}
+              >
+                <CalendarCheck size={14} /> Training Program
+              </button>
             </div>
 
             {/* Insights View */}
@@ -1358,6 +1448,15 @@ export default function WorkoutDashboard() {
             {activeTab === "body" && (
               <BodyCompositionTab 
                 bodyMetrics={bodyMetrics} 
+                onRefresh={loadData}
+              />
+            )}
+
+            {activeTab === "program" && (
+              <ProgramTab
+                programsWithDays={programsWithDays}
+                exercisesList={exercisesList}
+                rawLogs={rawLogs}
                 onRefresh={loadData}
               />
             )}
