@@ -7,6 +7,8 @@ import {
 import { getRecoveryHours } from "./utils/recovery";
 import { detectPlateau, detectInjuryRisk } from "./utils/analysis";
 import { exportToCSV } from "./utils/csv";
+import { computeMuscleBalance } from "./utils/muscleBalance";
+import { getSubstitutions } from "./utils/substitution";
 import BodyCompositionTab from "./components/BodyCompositionTab";
 import InsightsTab from "./components/InsightsTab";
 import DecisionTab from "./components/DecisionTab";
@@ -169,6 +171,10 @@ export default function WorkoutDashboard() {
   // AI Block Assessment states
   const [blockAssessment, setBlockAssessment] = useState(null);
   const [blockAssessmentLoading, setBlockAssessmentLoading] = useState(false);
+
+  // Muscle Balance Insight states
+  const [balanceInsight, setBalanceInsight] = useState(null);
+  const [balanceInsightLoading, setBalanceInsightLoading] = useState(false);
 
   // Reset pagination on filter/sort changes
   useEffect(() => {
@@ -1038,6 +1044,72 @@ export default function WorkoutDashboard() {
     };
   }, [JSON.stringify(blockContext), weeklyStats.length]);
 
+  // ── Muscle Balance computation (Part 1) ──────────────────────────────
+  const muscleBalance = useMemo(
+    () => computeMuscleBalance(expandedStimulus),
+    [expandedStimulus]
+  );
+
+  useEffect(() => {
+    if (!muscleBalance || (muscleBalance.pushPullRatio == null && muscleBalance.quadHamstringRatio == null)) {
+      setBalanceInsight(null);
+      return;
+    }
+
+    let active = true;
+
+    const fetchBalanceInsight = async () => {
+      setBalanceInsightLoading(true);
+      try {
+        const response = await fetch("/api/muscle-balance-insight", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(muscleBalance),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Server returned status ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (active) {
+          setBalanceInsight(data);
+        }
+      } catch (err) {
+        console.error("Failed to load muscle balance insight:", err);
+        if (active) {
+          setBalanceInsight(null);
+        }
+      } finally {
+        if (active) {
+          setBalanceInsightLoading(false);
+        }
+      }
+    };
+
+    const timer = setTimeout(() => {
+      fetchBalanceInsight();
+    }, 300);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [JSON.stringify(muscleBalance)]);
+
+  // ── Recovery-Aware Substitutions (Part 2) ────────────────────────────
+  const substitutions = useMemo(() => {
+    if (musclePriorities.recommended && !musclePriorities.recommended.isRecovered) {
+      return getSubstitutions(
+        musclePriorities.recommended.muscle,
+        muscleMapLookup,
+        musclePriorities.fullyRecovered,
+        exercisesList
+      );
+    }
+    return [];
+  }, [musclePriorities, muscleMapLookup, exercisesList]);
+
   const attemptedClassifications = useRef(new Set());
 
   useEffect(() => {
@@ -1446,6 +1518,10 @@ export default function WorkoutDashboard() {
                 fatigueInfo={fatigueInfo}
                 trainingGoals={trainingGoals}
                 onRefreshGoals={loadData}
+                muscleBalance={muscleBalance}
+                balanceInsight={balanceInsight}
+                balanceInsightLoading={balanceInsightLoading}
+                substitutions={substitutions}
                 exercisesList={exercisesList}
                 bodyMetrics={bodyMetrics}
               />

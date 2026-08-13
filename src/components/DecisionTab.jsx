@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import {
   Brain, Timer, CheckCircle2, ChevronRight, AlertTriangle,
-  Activity, Flame, Trophy, Rocket, Plus, X, Trash2, Calendar, Target
+  Activity, Flame, Trophy, Rocket, Plus, X, Trash2, Calendar, Target,
+  ArrowLeftRight, Shuffle
 } from "lucide-react";
 import { fmtDate, getTrainingSplit, getHistorySlope } from "../utils/calculations";
 import { supabase } from "../App";
@@ -17,6 +18,10 @@ export default function DecisionTab({
   fatigueInfo,
   trainingGoals = [],
   onRefreshGoals,
+  muscleBalance,
+  balanceInsight,
+  balanceInsightLoading,
+  substitutions = [],
   exercisesList = [],
   bodyMetrics = []
 }) {
@@ -232,6 +237,30 @@ export default function DecisionTab({
             </div>
           </div>
         </div>
+        {/* Train This Instead — shown only when recommended muscle is unrecovered and alternatives exist */}
+        {musclePriorities.recommended && !musclePriorities.recommended.isRecovered && substitutions.length > 0 && (
+          <div className="rounded-xl border border-[#232830] bg-[#15181D] p-5 space-y-3 md:col-span-2">
+            <div className="flex items-center gap-2">
+              <Shuffle size={16} className="text-[#4FD1C5]" />
+              <span className="text-[11px] uppercase tracking-wider text-[#8A919C]">Train This Instead</span>
+              <span className="text-[9px] text-[#8A919C] ml-auto">while <span className="capitalize text-[#F4B740] font-semibold">{musclePriorities.recommended.muscle}</span> recovers</span>
+            </div>
+            <div className="grid md:grid-cols-3 gap-3">
+              {substitutions.map((sub, i) => (
+                <div key={i} className="rounded-lg bg-[#0C0E12]/50 border border-[#232830] p-3 space-y-2">
+                  <span className="text-sm font-semibold text-[#E7E9EC] block">{sub.title}</span>
+                  <div className="flex flex-wrap gap-1">
+                    {sub.targetsMuscles.map(m => (
+                      <span key={m} className="px-1.5 py-0.5 rounded text-[8px] bg-[#4FD1C5]/10 text-[#4FD1C5] border border-[#4FD1C5]/20 font-semibold capitalize">
+                        {m}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Card 2: AI Deload & Block Assessment */}
         <div className="rounded-xl border border-[#232830] bg-[#15181D] p-5 flex flex-col justify-between space-y-4">
@@ -280,6 +309,127 @@ export default function DecisionTab({
             <span>Updates dynamically based on plateaus, injury risk, and deload frequency.</span>
           </div>
         </div>
+
+        {/* Card 2b: Muscle Balance */}
+        {muscleBalance && (muscleBalance.pushPullRatio != null || muscleBalance.quadHamstringRatio != null) && (
+          <div className="rounded-xl border border-[#232830] bg-[#15181D] p-5 flex flex-col justify-between space-y-4">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] uppercase tracking-wider text-[#8A919C]">Muscle Balance</span>
+                <ArrowLeftRight size={16} className="text-[#F4B740]" />
+              </div>
+
+              <div className="space-y-3 pt-2">
+                {/* Push / Pull ratio bar */}
+                {muscleBalance.pushPullRatio != null && (
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[10px] text-[#8A919C]">
+                      <span>Push / Pull Ratio</span>
+                      <span className={`font-bold ${
+                        muscleBalance.pushPullRatio === Infinity ? 'text-[#EF7B57]'
+                        : muscleBalance.pushPullRatio > 1.8 ? 'text-[#EF7B57]'
+                        : muscleBalance.pushPullRatio > 1.4 ? 'text-[#F4B740]'
+                        : 'text-[#4FD1C5]'
+                      }`}>
+                        {muscleBalance.pushPullRatio === Infinity ? '∞' : muscleBalance.pushPullRatio.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex gap-1 h-2">
+                      <div
+                        className="rounded-l-full transition-all duration-500"
+                        style={{
+                          width: `${muscleBalance.pushPullRatio === Infinity ? 95 : Math.min(95, (muscleBalance.pushPullRatio / (muscleBalance.pushPullRatio + 1)) * 100)}%`,
+                          backgroundColor: muscleBalance.pushPullRatio > 1.8 ? '#EF7B57' : muscleBalance.pushPullRatio > 1.4 ? '#F4B740' : '#4FD1C5',
+                        }}
+                      />
+                      <div
+                        className="bg-[#7FA6FF] rounded-r-full transition-all duration-500"
+                        style={{
+                          width: `${muscleBalance.pushPullRatio === Infinity ? 5 : Math.max(5, (1 / (muscleBalance.pushPullRatio + 1)) * 100)}%`,
+                        }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[9px] text-[#8A919C]">
+                      <span>Push</span>
+                      <span>Pull</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Quad / Hamstring ratio bar */}
+                {muscleBalance.quadHamstringRatio != null && (
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[10px] text-[#8A919C]">
+                      <span>Quad / Hamstring Ratio</span>
+                      <span className={`font-bold ${
+                        muscleBalance.quadHamstringRatio === Infinity ? 'text-[#EF7B57]'
+                        : muscleBalance.quadHamstringRatio > 1.8 ? 'text-[#EF7B57]'
+                        : muscleBalance.quadHamstringRatio > 1.4 ? 'text-[#F4B740]'
+                        : 'text-[#4FD1C5]'
+                      }`}>
+                        {muscleBalance.quadHamstringRatio === Infinity ? '∞' : muscleBalance.quadHamstringRatio.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex gap-1 h-2">
+                      <div
+                        className="rounded-l-full transition-all duration-500"
+                        style={{
+                          width: `${muscleBalance.quadHamstringRatio === Infinity ? 95 : Math.min(95, (muscleBalance.quadHamstringRatio / (muscleBalance.quadHamstringRatio + 1)) * 100)}%`,
+                          backgroundColor: muscleBalance.quadHamstringRatio > 1.8 ? '#EF7B57' : muscleBalance.quadHamstringRatio > 1.4 ? '#F4B740' : '#4FD1C5',
+                        }}
+                      />
+                      <div
+                        className="bg-[#7FA6FF] rounded-r-full transition-all duration-500"
+                        style={{
+                          width: `${muscleBalance.quadHamstringRatio === Infinity ? 5 : Math.max(5, (1 / (muscleBalance.quadHamstringRatio + 1)) * 100)}%`,
+                        }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[9px] text-[#8A919C]">
+                      <span>Quads</span>
+                      <span>Hamstrings</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Neglected muscles */}
+                {muscleBalance.neglectedMuscles.length > 0 && (
+                  <div className="space-y-1 pt-1">
+                    <span className="text-[10px] uppercase font-bold text-[#8A919C] tracking-wide block">Neglected Muscles</span>
+                    <div className="flex flex-wrap gap-1">
+                      {muscleBalance.neglectedMuscles.map(m => (
+                        <span key={m} className="px-1.5 py-0.5 rounded text-[8px] bg-[#EF7B57]/10 text-[#EF7B57] border border-[#EF7B57]/20 font-semibold capitalize">
+                          {m}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* AI Balance Insight */}
+            <div className="pt-3 border-t border-[#232830] space-y-1">
+              {balanceInsightLoading ? (
+                <div className="space-y-1.5 animate-pulse">
+                  <div className="h-3 bg-[#8A919C]/20 rounded w-full" />
+                  <div className="h-3 bg-[#8A919C]/20 rounded w-3/4" />
+                </div>
+              ) : balanceInsight ? (
+                <>
+                  <p className="text-xs text-[#8A919C] leading-relaxed">{balanceInsight.summary}</p>
+                  <p className="text-xs text-[#F4B740] leading-relaxed font-medium">{balanceInsight.suggestedFix}</p>
+                </>
+              ) : (
+                <p className="text-xs text-[#8A919C]">
+                  {muscleBalance.neglectedMuscles.length > 0
+                    ? `Imbalance detected — ${muscleBalance.neglectedMuscles.map(m => m.charAt(0).toUpperCase() + m.slice(1)).join(', ')} may need attention.`
+                    : 'Your push/pull and anterior/posterior balance looks reasonable.'}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Card 3: AI Coaching Recommendations & Workout Split suggestion */}
