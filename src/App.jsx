@@ -9,6 +9,7 @@ import { detectPlateau, detectInjuryRisk } from "./utils/analysis";
 import { exportToCSV } from "./utils/csv";
 import { computeMuscleBalance } from "./utils/muscleBalance";
 import { getSubstitutions } from "./utils/substitution";
+import { buildAnnotationEvents } from "./utils/insightEvents";
 import BodyCompositionTab from "./components/BodyCompositionTab";
 import InsightsTab from "./components/InsightsTab";
 import DecisionTab from "./components/DecisionTab";
@@ -175,6 +176,11 @@ export default function WorkoutDashboard() {
   // Muscle Balance Insight states
   const [balanceInsight, setBalanceInsight] = useState(null);
   const [balanceInsightLoading, setBalanceInsightLoading] = useState(false);
+
+  // AI Insight Digest states
+  const [insightDigest, setInsightDigest] = useState(null);
+  const [insightDigestLoading, setInsightDigestLoading] = useState(false);
+  const lastDigestSignatureRef = useRef("");
 
   // Reset pagination on filter/sort changes
   useEffect(() => {
@@ -1097,6 +1103,101 @@ export default function WorkoutDashboard() {
     };
   }, [JSON.stringify(muscleBalance)]);
 
+  // ── AI Insight Digest (Part 3) ──────────────────────────────────────
+  const annotationEvents = useMemo(
+    () =>
+      buildAnnotationEvents({
+        oneRmSeries,
+        plateauStatus: selectedExercisePlateauStatus,
+        rpeSeries,
+        weeklyStats,
+        muscleBalance,
+      }),
+    [oneRmSeries, selectedExercisePlateauStatus, rpeSeries, weeklyStats, muscleBalance]
+  );
+
+  const mostRecentCompletedAt = useMemo(() => {
+    if (!rawLogs.length) return "";
+    return rawLogs.reduce((max, r) => (r.completed_at > max ? r.completed_at : max), "");
+  }, [rawLogs]);
+
+  useEffect(() => {
+    if (!rawLogs.length) {
+      setInsightDigest(null);
+      return;
+    }
+
+    const currentSignature = `${rawLogs.length}-${mostRecentCompletedAt}-${selectedExerciseId}`;
+
+    if (lastDigestSignatureRef.current === currentSignature && insightDigest) {
+      return;
+    }
+
+    let active = true;
+
+    const fetchDigest = async () => {
+      setInsightDigestLoading(true);
+      try {
+        const summary = {
+          recentVolumeTrend: Math.round(volumeDelta * 10) / 10,
+          rpeAvgTrend: Math.round(avgRpe * 10) / 10,
+          oneRmSlope: Math.round(overallProgressRateStats.slope * 10) / 10,
+          acwrZone: acwrInfo?.label || "N/A",
+          pushPullRatio: muscleBalance?.pushPullRatio != null ? Math.round(muscleBalance.pushPullRatio * 100) / 100 : null,
+          quadHamstringRatio: muscleBalance?.quadHamstringRatio != null ? Math.round(muscleBalance.quadHamstringRatio * 100) / 100 : null,
+        };
+
+        const response = await fetch("/api/insights-digest", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            events: annotationEvents,
+            summary,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Server returned status ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (active) {
+          setInsightDigest(data);
+          lastDigestSignatureRef.current = currentSignature;
+        }
+      } catch (err) {
+        console.error("Failed to load AI insight digest:", err);
+        if (active) {
+          setInsightDigest(null);
+        }
+      } finally {
+        if (active) {
+          setInsightDigestLoading(false);
+        }
+      }
+    };
+
+    const timer = setTimeout(() => {
+      fetchDigest();
+    }, 300);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [
+    rawLogs.length,
+    mostRecentCompletedAt,
+    selectedExerciseId,
+    volumeDelta,
+    avgRpe,
+    overallProgressRateStats.slope,
+    acwrInfo?.label,
+    muscleBalance?.pushPullRatio,
+    muscleBalance?.quadHamstringRatio,
+    JSON.stringify(annotationEvents),
+  ]);
+
   // ── Recovery-Aware Substitutions (Part 2) ────────────────────────────
   const substitutions = useMemo(() => {
     if (musclePriorities.recommended && !musclePriorities.recommended.isRecovered) {
@@ -1502,6 +1603,9 @@ export default function WorkoutDashboard() {
                 sortColumn={sortColumn}
                 sortDirection={sortDirection}
                 exportToCSV={exportToCSV}
+                insightDigest={insightDigest}
+                insightDigestLoading={insightDigestLoading}
+                annotationEvents={annotationEvents}
               />
             )}
 

@@ -6,7 +6,8 @@ import {
 } from "recharts";
 import {
   Flame, Trophy, Activity, CalendarCheck, Rocket, Gauge,
-  Download, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle
+  Download, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle,
+  Sparkles, RefreshCw
 } from "lucide-react";
 import { KpiCard, MetricCard, CustomTooltip, RadarTooltip } from "./shared/SharedWidgets";
 import TrainingCalendarHeatmap from "./TrainingCalendarHeatmap";
@@ -48,10 +49,75 @@ export default function InsightsTab({
   handleSort,
   sortColumn,
   sortDirection,
-  exportToCSV
+  exportToCSV,
+  insightDigest = null,
+  insightDigestLoading = false,
+  annotationEvents = []
 }) {
+  const captions = insightDigest?.captions || {};
+
   return (
-    <>
+    <div className="space-y-6">
+      {/* AI Insight Digest Card */}
+      <div className="rounded-xl border border-[#F4B740]/30 bg-gradient-to-r from-[#15181D] via-[#1C2028] to-[#15181D] p-4 md:p-5 relative overflow-hidden shadow-lg space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-[#F4B740]/15 border border-[#F4B740]/40 flex items-center justify-center">
+              <Sparkles size={16} color="#F4B740" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold tracking-tight text-[#E7E9EC]">AI INSIGHT DIGEST</h2>
+              <p className="text-[10px] text-[#8A919C]">Automated performance &amp; workload summary</p>
+            </div>
+          </div>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#F4B740]/10 border border-[#F4B740]/25 text-[#F4B740] font-medium">
+            Gemini 3.5 Lite
+          </span>
+        </div>
+
+        {insightDigestLoading ? (
+          <div className="flex items-center gap-2 py-3 text-xs text-[#8A919C] animate-pulse">
+            <RefreshCw size={14} className="animate-spin text-[#F4B740]" />
+            <span>Analyzing training logs and synthesizing performance narrative...</span>
+          </div>
+        ) : insightDigest?.narrative ? (
+          <div className="space-y-3">
+            <p className="text-xs md:text-sm text-[#E7E9EC] leading-relaxed font-normal">
+              {insightDigest.narrative}
+            </p>
+
+            {/* Annotation Badges / Events List */}
+            {annotationEvents.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {annotationEvents.map((evt) => {
+                  const captionText = captions[evt.id] || evt.label;
+                  let badgeStyle = "bg-[#232830] text-[#E7E9EC] border-[#2A2F38]";
+                  if (evt.type === "pr") badgeStyle = "bg-[#F4B740]/10 text-[#F4B740] border-[#F4B740]/30";
+                  if (evt.type === "rpe-spike") badgeStyle = "bg-[#7FA6FF]/10 text-[#7FA6FF] border-[#7FA6FF]/30";
+                  if (evt.type === "acwr-zone") badgeStyle = "bg-[#EF7B57]/10 text-[#EF7B57] border-[#EF7B57]/30";
+                  if (evt.type === "plateau") badgeStyle = "bg-[#F4B740]/15 text-[#F4B740] border-[#F4B740]/40";
+                  if (evt.type === "neglected-muscle") badgeStyle = "bg-purple-500/10 text-purple-300 border-purple-500/30";
+
+                  return (
+                    <span
+                      key={evt.id}
+                      className={`text-[10px] px-2 py-0.5 rounded border flex items-center gap-1 font-mono ${badgeStyle}`}
+                      title={evt.label}
+                    >
+                      <span className="font-semibold">{evt.type.toUpperCase()}:</span>
+                      <span>{captionText}</span>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-xs text-[#8A919C] py-2">
+            Insight will update automatically as new workout logs are registered.
+          </p>
+        )}
+      </div>
       {/* KPI Row 1 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 relative z-0">
         <KpiCard icon={Flame} label="Total Volume" value={Math.round(totalVolume).toLocaleString()} unit="kg" delta={volumeDelta} accent="#F4B740" />
@@ -206,6 +272,22 @@ export default function InsightsTab({
                 <ReferenceLine y={9} stroke="#EF7B57" strokeDasharray="3 3" strokeOpacity={0.5} />
                 <Tooltip content={<CustomTooltip suffix=" RPE" />} />
                 <Area type="monotone" dataKey="rpe" name="RPE" stroke="#7FA6FF" strokeWidth={2} fill="url(#rpeFill)" />
+                {annotationEvents
+                  .filter((e) => e.type === "rpe-spike")
+                  .map((e) => (
+                    <ReferenceLine
+                      key={e.id}
+                      x={e.date}
+                      stroke="#7FA6FF"
+                      strokeDasharray="2 2"
+                      label={{
+                        value: captions[e.id] || "Spike",
+                        fill: "#7FA6FF",
+                        fontSize: 9,
+                        position: "top",
+                      }}
+                    />
+                  ))}
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -300,6 +382,25 @@ export default function InsightsTab({
               <ReferenceArea y1={1.5} y2={1.8} fill="#EF7B57" fillOpacity={0.1} />
               <Tooltip content={<CustomTooltip suffix="" />} />
               <Line type="monotone" dataKey="acwr" name="ACWR" stroke="#E7E9EC" strokeWidth={2} />
+              {annotationEvents
+                .filter((e) => e.type === "acwr-zone")
+                .map((e) => {
+                  const labelDate = fmtDate(e.date);
+                  return (
+                    <ReferenceLine
+                      key={e.id}
+                      x={labelDate}
+                      stroke="#EF7B57"
+                      strokeDasharray="3 3"
+                      label={{
+                        value: captions[e.id] || e.zone,
+                        fill: "#EF7B57",
+                        fontSize: 9,
+                        position: "insideTopRight",
+                      }}
+                    />
+                  );
+                })}
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -448,6 +549,6 @@ export default function InsightsTab({
       </div>
 
       <TrainingCalendarHeatmap data={dailyFatigueMap} anchorDate={anchorDate} />
-    </>
+    </div>
   );
 }
