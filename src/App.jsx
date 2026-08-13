@@ -26,7 +26,7 @@ import {
   getRadarMuscleCategory,
   buildOneRmSeries
 } from "./utils/calculations";
-import { MUSCLE_COLORS, PERIODS } from "./constants";
+import { MUSCLE_COLORS, PERIODS, FEATURES } from "./constants";
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -129,6 +129,12 @@ export async function fetchProgramExercises() {
 
 export default function WorkoutDashboard() {
   const [activeTab, setActiveTab] = useState("insights"); // "insights" or "decision"
+
+  useEffect(() => {
+    if (!FEATURES.program && activeTab === "program") {
+      setActiveTab("insights");
+    }
+  }, [activeTab]);
   const [radarMetric, setRadarMetric] = useState("sets"); // "sets" or "volume"
   const [now, setNow] = useState(new Date());
 
@@ -188,9 +194,9 @@ export default function WorkoutDashboard() {
         fetchBodyMetrics(),
         fetchMuscleMap(),
         fetchTrainingGoals(),
-        fetchPrograms(),
-        fetchProgramDays(),
-        fetchProgramExercises()
+        FEATURES.program ? fetchPrograms() : Promise.resolve([]),
+        FEATURES.program ? fetchProgramDays() : Promise.resolve([]),
+        FEATURES.program ? fetchProgramExercises() : Promise.resolve([])
       ]);
       console.log("Raw Supabase Data Loaded:", logsData);
       console.log("Raw Body Metrics Loaded:", metricsData);
@@ -1373,16 +1379,18 @@ export default function WorkoutDashboard() {
               >
                 <Scale size={14} /> Body Composition
               </button>
-              <button
-                onClick={() => setActiveTab("program")}
-                className={`pb-2.5 text-sm font-semibold tracking-wide border-b-2 transition-all flex items-center gap-1.5 ${
-                  activeTab === "program"
-                    ? "border-[#F4B740] text-[#F4B740]"
-                    : "border-transparent text-[#8A919C] hover:text-[#E7E9EC]"
-                }`}
-              >
-                <CalendarCheck size={14} /> Training Program
-              </button>
+              {FEATURES.program && (
+                <button
+                  onClick={() => setActiveTab("program")}
+                  className={`pb-2.5 text-sm font-semibold tracking-wide border-b-2 transition-all flex items-center gap-1.5 ${
+                    activeTab === "program"
+                      ? "border-[#F4B740] text-[#F4B740]"
+                      : "border-transparent text-[#8A919C] hover:text-[#E7E9EC]"
+                  }`}
+                >
+                  <CalendarCheck size={14} /> Training Program
+                </button>
+              )}
             </div>
 
             {/* Insights View */}
@@ -1450,7 +1458,7 @@ export default function WorkoutDashboard() {
               />
             )}
 
-            {activeTab === "program" && (
+            {FEATURES.program && activeTab === "program" && (
               <ProgramTab
                 programsWithDays={programsWithDays}
                 exercisesList={exercisesList}

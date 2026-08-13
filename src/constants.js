@@ -20,3 +20,8 @@ export const PERIODS = [
   { label: "1M", days: 30 },
   { label: "All", days: null }
 ];
+
+export const FEATURES = {
+  program: false,  // set to true to re-enable the Program tab
+};
+
