@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import {
   Dumbbell, Trophy, Database, X, Scale, Brain,
-  RefreshCw, ChevronDown, CalendarCheck, Download
+  RefreshCw, ChevronDown, CalendarCheck, Download, Newspaper
 } from "lucide-react";
 
 import { getRecoveryHours } from "./utils/recovery";
@@ -14,6 +14,7 @@ import BodyCompositionTab from "./components/BodyCompositionTab";
 import InsightsTab from "./components/InsightsTab";
 import DecisionTab from "./components/DecisionTab";
 import ProgramTab from "./components/ProgramTab";
+import ReportsTab from "./components/ReportsTab";
 import { buildDailyFatigueMap } from "./utils/dailyFatigue";
 import {
   buildMuscleMapLookup,
@@ -1552,6 +1553,16 @@ export default function WorkoutDashboard() {
               >
                 <Scale size={14} /> Body Composition
               </button>
+              <button
+                onClick={() => setActiveTab("reports")}
+                className={`pb-2.5 text-sm font-semibold tracking-wide border-b-2 transition-all flex items-center gap-1.5 ${
+                  activeTab === "reports"
+                    ? "border-[#F4B740] text-[#F4B740]"
+                    : "border-transparent text-[#8A919C] hover:text-[#E7E9EC]"
+                }`}
+              >
+                <Newspaper size={14} /> Progress Reports
+              </button>
               {FEATURES.program && (
                 <button
                   onClick={() => setActiveTab("program")}
@@ -1636,6 +1647,10 @@ export default function WorkoutDashboard() {
                 bodyMetrics={bodyMetrics} 
                 onRefresh={loadData}
               />
+            )}
+
+            {activeTab === "reports" && (
+              <ReportsTab />
             )}
 
             {FEATURES.program && activeTab === "program" && (
