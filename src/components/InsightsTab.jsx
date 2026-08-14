@@ -9,7 +9,7 @@ import {
   Download, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle,
   Sparkles, RefreshCw
 } from "lucide-react";
-import { KpiCard, MetricCard, CustomTooltip, RadarTooltip } from "./shared/SharedWidgets";
+import { KpiCard, MetricCard, CustomTooltip, RadarTooltip, VolumeTooltip } from "./shared/SharedWidgets";
 import TrainingCalendarHeatmap from "./TrainingCalendarHeatmap";
 import { MUSCLE_COLORS } from "../constants";
 import { fmtDate, estOneRM } from "../utils/calculations";
@@ -242,10 +242,24 @@ export default function InsightsTab({
                 <CartesianGrid stroke="#1E222A" vertical={false} />
                 <XAxis dataKey="week" tick={{ fill: "#8A919C", fontSize: 10 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
                 <YAxis tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} />
-                <Tooltip content={<CustomTooltip suffix=" kg" />} />
-                {Object.keys(MUSCLE_COLORS).map((mg) => (
-                  <Bar key={mg} dataKey={mg} stackId="vol" fill={MUSCLE_COLORS[mg] || "#8A919C"} radius={[2, 2, 0, 0]} />
-                ))}
+                <Tooltip content={<VolumeTooltip annotationEvents={annotationEvents} captions={captions} />} />
+                {Object.keys(MUSCLE_COLORS).map((mg) => {
+                  const isNeglected = annotationEvents.some(
+                    (e) => e.type === "neglected-muscle" && (e.id === `neglected-${mg}` || e.muscle === mg)
+                  );
+                  return (
+                    <Bar
+                      key={mg}
+                      dataKey={mg}
+                      stackId="vol"
+                      fill={MUSCLE_COLORS[mg] || "#8A919C"}
+                      fillOpacity={isNeglected ? 0.6 : 1}
+                      stroke={isNeglected ? "#EF7B57" : "none"}
+                      strokeWidth={isNeglected ? 1.5 : 0}
+                      radius={[2, 2, 0, 0]}
+                    />
+                  );
+                })}
               </BarChart>
             </ResponsiveContainer>
           </div>

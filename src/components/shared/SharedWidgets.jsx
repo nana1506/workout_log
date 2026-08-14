@@ -78,3 +78,37 @@ export function RadarTooltip({ active, payload }) {
     </div>
   );
 }
+
+export function VolumeTooltip({ active, payload, label, annotationEvents = [], captions = {} }) {
+  if (!active || !payload || !payload.length) return null;
+  return (
+    <div className="rounded-lg border border-[#2A2F38] bg-[#1B1F26] px-3 py-2 text-xs shadow-lg space-y-1.5">
+      <div className="text-[#8A919C] mb-1 font-medium">{label}</div>
+      {payload.map((p) => {
+        const mg = p.dataKey;
+        const neglectedEvent = annotationEvents.find(
+          (e) => e.type === "neglected-muscle" && (e.id === `neglected-${mg}` || e.muscle === mg)
+        );
+        const caption = neglectedEvent
+          ? (captions[`neglected-${mg}`] || captions[neglectedEvent.id] || neglectedEvent.label)
+          : null;
+
+        return (
+          <div key={mg} className="space-y-0.5">
+            <div className="flex items-center gap-2" style={{ color: p.color }}>
+              <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />
+              <span className="text-[#E7E9EC]">
+                {p.name}: {p.value} kg
+              </span>
+            </div>
+            {caption && (
+              <div className="text-[10px] text-[#EF7B57] pl-4 font-medium">
+                {caption}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
