@@ -176,8 +176,8 @@ function formatInlineStyles(str, enableHighlighting = false) {
 }
 
 /**
- * Renders an email-safe, dark-mode compatible SVG dual-anatomical body silhouette
- * showing muscle volume distribution and balance.
+ * Renders an email-safe, dark-mode compatible athletic SVG dual-anatomical body silhouette
+ * with smooth contours and color-coded muscle stimulation.
  *
  * @param {Object} muscleBalance
  * @returns {string} Email-safe SVG markup
@@ -208,54 +208,80 @@ export function renderAnatomicalBodySvg(muscleBalance) {
   const hamstringColor = getMuscleColor("hamstring") || getMuscleColor("glute");
 
   return `
-  <table border="0" cellspacing="0" cellpadding="0" align="center" style="margin: 12px auto;">
+  <table border="0" cellspacing="0" cellpadding="0" align="center" style="margin: 12px auto; background-color: rgba(15, 23, 42, 0.04); border-radius: 12px; padding: 12px 6px;">
     <tr>
-      <td align="center" style="padding: 0 12px;">
-        <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: #94A3B8; margin-bottom: 6px; letter-spacing: 0.05em;">ANTERIOR (FRONT)</div>
-        <svg width="110" height="150" viewBox="0 0 100 140" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: block; max-width: 110px;">
-          <!-- Head -->
-          <circle cx="50" cy="14" r="10" fill="#94A3B8" />
-          <!-- Neck -->
-          <rect x="47" y="24" width="6" height="6" fill="#94A3B8" />
-          <!-- Shoulders -->
-          <path d="M30 30 Q50 27 70 30 L66 38 Q50 35 34 38 Z" fill="${shoulderColor}" />
-          <!-- Chest -->
-          <path d="M34 38 Q50 35 66 38 L64 54 Q50 56 36 54 Z" fill="${chestColor}" />
-          <!-- Arms (Front) -->
-          <path d="M26 33 L32 37 L28 65 L22 62 Z" fill="${armColor}" />
-          <path d="M74 33 L68 37 L72 65 L78 62 Z" fill="${armColor}" />
-          <!-- Core / Abs -->
-          <rect x="38" y="56" width="24" height="20" rx="3" fill="#64748B" />
+      <!-- Anterior (Front) View -->
+      <td align="center" valign="top" style="padding: 0 10px;">
+        <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748B; margin-bottom: 6px; letter-spacing: 0.06em;">ANTERIOR (FRONT)</div>
+        <svg width="120" height="175" viewBox="0 0 120 175" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: block; max-width: 120px; height: auto;">
+          <!-- Head & Neck -->
+          <ellipse cx="60" cy="16" rx="9" ry="11" fill="#94A3B8" stroke="#334155" stroke-width="1.2" />
+          <path d="M56 25 L56 32 Q60 34 64 32 L64 25 Z" fill="#94A3B8" stroke="#334155" stroke-width="1.2" />
+          
+          <!-- Deltoids / Shoulders -->
+          <path d="M43 34 C35 35 31 42 32 48 C33 52 38 54 41 52 C44 50 45 42 43 35 Z" fill="${shoulderColor}" stroke="#1E293B" stroke-width="1.2" />
+          <path d="M77 34 C85 35 89 42 88 48 C87 52 82 54 79 52 C76 50 75 42 77 35 Z" fill="${shoulderColor}" stroke="#1E293B" stroke-width="1.2" />
+
+          <!-- Chest (Pectorals) -->
+          <path d="M44 36 C51 35 58 36 59 38 L59 50 C54 51 45 49 42 44 Z" fill="${chestColor}" stroke="#1E293B" stroke-width="1.2" />
+          <path d="M76 36 C69 35 62 36 61 38 L61 50 C66 51 75 49 78 44 Z" fill="${chestColor}" stroke="#1E293B" stroke-width="1.2" />
+
+          <!-- Biceps & Forearms -->
+          <path d="M32 49 C29 53 28 61 31 66 C33 69 36 68 37 65 C39 60 38 53 35 50 Z" fill="${armColor}" stroke="#1E293B" stroke-width="1.2" />
+          <path d="M31 67 C27 73 24 82 26 86 C28 88 31 87 34 82 C37 76 36 70 34 67 Z" fill="${armColor}" stroke="#1E293B" stroke-width="1.2" />
+          <path d="M88 49 C91 53 92 61 89 66 C87 69 84 68 83 65 C81 60 82 53 85 50 Z" fill="${armColor}" stroke="#1E293B" stroke-width="1.2" />
+          <path d="M89 67 C93 73 96 82 94 86 C92 88 89 87 86 82 C83 76 84 70 86 67 Z" fill="${armColor}" stroke="#1E293B" stroke-width="1.2" />
+
+          <!-- Core / Abdominals -->
+          <path d="M46 52 C54 51 66 51 74 52 C72 63 71 74 73 79 C65 80 55 80 47 79 C49 74 48 63 46 52 Z" fill="#64748B" stroke="#1E293B" stroke-width="1.2" />
+          <path d="M60 52 L60 79 M48 60 L72 60 M49 69 L71 69" stroke="#1E293B" stroke-width="1" fill="none" opacity="0.6" />
+
           <!-- Hips / Pelvis -->
-          <path d="M36 78 L64 78 L58 88 L42 88 Z" fill="#94A3B8" />
-          <!-- Quadriceps / Upper Legs -->
-          <path d="M37 90 L48 90 L46 114 L37 114 Z" fill="${quadColor}" />
-          <path d="M52 90 L63 90 L63 114 L54 114 Z" fill="${quadColor}" />
-          <!-- Calves / Lower Legs -->
-          <path d="M38 116 L45 116 L44 136 L39 136 Z" fill="#94A3B8" />
-          <path d="M55 116 L62 116 L61 136 L56 136 Z" fill="#94A3B8" />
+          <path d="M47 79 L73 79 L68 90 L52 90 Z" fill="#94A3B8" stroke="#1E293B" stroke-width="1.2" />
+
+          <!-- Quadriceps -->
+          <path d="M48 90 C44 98 43 114 47 124 C51 125 55 125 57 124 C60 114 58 98 54 90 Z" fill="${quadColor}" stroke="#1E293B" stroke-width="1.2" />
+          <path d="M72 90 C76 98 77 114 73 124 C69 125 65 125 63 124 C60 114 62 98 66 90 Z" fill="${quadColor}" stroke="#1E293B" stroke-width="1.2" />
+
+          <!-- Knees & Calves / Shins -->
+          <ellipse cx="51" cy="128" rx="4" ry="3" fill="#94A3B8" stroke="#1E293B" stroke-width="1" />
+          <ellipse cx="69" cy="128" rx="4" ry="3" fill="#94A3B8" stroke="#1E293B" stroke-width="1" />
+          <path d="M48 132 C45 141 46 156 48 164 C51 165 54 165 55 164 C57 156 56 141 54 132 Z" fill="#94A3B8" stroke="#1E293B" stroke-width="1.2" />
+          <path d="M72 132 C75 141 74 156 72 164 C69 165 66 165 65 164 C63 156 64 141 66 132 Z" fill="#94A3B8" stroke="#1E293B" stroke-width="1.2" />
         </svg>
       </td>
-      <td align="center" style="padding: 0 12px; border-left: 1px dashed rgba(148, 163, 184, 0.3);">
-        <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: #94A3B8; margin-bottom: 6px; letter-spacing: 0.05em;">POSTERIOR (BACK)</div>
-        <svg width="110" height="150" viewBox="0 0 100 140" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: block; max-width: 110px;">
-          <!-- Head (Back) -->
-          <circle cx="50" cy="14" r="10" fill="#94A3B8" />
-          <!-- Traps & Upper Back -->
-          <path d="M32 30 Q50 25 68 30 L66 46 Q50 49 34 46 Z" fill="${backColor}" />
+
+      <!-- Posterior (Back) View -->
+      <td align="center" valign="top" style="padding: 0 10px; border-left: 1px dashed rgba(148, 163, 184, 0.35);">
+        <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748B; margin-bottom: 6px; letter-spacing: 0.06em;">POSTERIOR (BACK)</div>
+        <svg width="120" height="175" viewBox="0 0 120 175" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: block; max-width: 120px; height: auto;">
+          <!-- Head & Neck -->
+          <ellipse cx="60" cy="16" rx="9" ry="11" fill="#94A3B8" stroke="#334155" stroke-width="1.2" />
+          <path d="M56 25 L56 32 Q60 34 64 32 L64 25 Z" fill="#94A3B8" stroke="#334155" stroke-width="1.2" />
+
+          <!-- Trapezius & Upper Back -->
+          <path d="M50 31 Q60 29 70 31 L76 41 C70 46 50 46 44 41 Z" fill="${backColor}" stroke="#1E293B" stroke-width="1.2" />
+
           <!-- Lats / Mid Back -->
-          <path d="M34 46 Q50 49 66 46 L62 66 Q50 68 38 66 Z" fill="${backColor}" />
-          <!-- Rear Delts / Arms (Back) -->
-          <path d="M26 33 L32 37 L28 65 L22 62 Z" fill="${armColor}" />
-          <path d="M74 33 L68 37 L72 65 L78 62 Z" fill="${armColor}" />
-          <!-- Lower Back & Glutes -->
-          <path d="M36 68 L64 68 L62 86 L38 86 Z" fill="${hamstringColor}" />
+          <path d="M44 42 C42 52 46 63 52 70 C57 71 63 71 68 70 C74 63 78 52 76 42 C68 45 52 45 44 42 Z" fill="${backColor}" stroke="#1E293B" stroke-width="1.2" />
+
+          <!-- Rear Delts & Triceps -->
+          <path d="M43 34 C35 36 31 44 32 52 C34 63 39 65 41 60 C43 54 44 43 43 34 Z" fill="${armColor}" stroke="#1E293B" stroke-width="1.2" />
+          <path d="M31 64 C27 71 24 81 26 86 C28 88 31 87 34 82 C37 75 35 68 33 64 Z" fill="${armColor}" stroke="#1E293B" stroke-width="1.2" />
+          <path d="M77 34 C85 36 89 44 88 52 C86 63 81 65 79 60 C77 54 76 43 77 34 Z" fill="${armColor}" stroke="#1E293B" stroke-width="1.2" />
+          <path d="M89 64 C93 71 96 81 94 86 C92 88 89 87 86 82 C83 75 85 68 87 64 Z" fill="${armColor}" stroke="#1E293B" stroke-width="1.2" />
+
+          <!-- Glutes -->
+          <path d="M48 73 C42 79 43 90 50 94 C56 94 59 89 59 77 C55 74 51 73 48 73 Z" fill="${hamstringColor}" stroke="#1E293B" stroke-width="1.2" />
+          <path d="M72 73 C78 79 77 90 70 94 C64 94 61 89 61 77 C65 74 69 73 72 73 Z" fill="${hamstringColor}" stroke="#1E293B" stroke-width="1.2" />
+
           <!-- Hamstrings -->
-          <path d="M37 90 L48 90 L46 114 L37 114 Z" fill="${hamstringColor}" />
-          <path d="M52 90 L63 90 L63 114 L54 114 Z" fill="${hamstringColor}" />
-          <!-- Calves (Back) -->
-          <path d="M38 116 L45 116 L44 136 L39 136 Z" fill="#94A3B8" />
-          <path d="M55 116 L62 116 L61 136 L56 136 Z" fill="#94A3B8" />
+          <path d="M48 95 C44 103 44 116 47 124 C51 125 55 125 57 124 C59 116 58 103 56 95 Z" fill="${hamstringColor}" stroke="#1E293B" stroke-width="1.2" />
+          <path d="M72 95 C76 103 76 116 73 124 C69 125 65 125 63 124 C61 116 62 103 64 95 Z" fill="${hamstringColor}" stroke="#1E293B" stroke-width="1.2" />
+
+          <!-- Calves (Gastrocnemius) -->
+          <path d="M47 130 C43 139 44 154 48 164 C51 165 55 165 56 164 C59 154 57 139 55 130 Z" fill="#94A3B8" stroke="#1E293B" stroke-width="1.2" />
+          <path d="M73 130 C77 139 76 154 72 164 C69 165 65 165 64 164 C61 154 63 139 65 130 Z" fill="#94A3B8" stroke="#1E293B" stroke-width="1.2" />
         </svg>
       </td>
     </tr>
@@ -376,14 +402,24 @@ export function renderReportEmailHtml(
     const quadHam = mb.quadHamstringRatio != null ? `${mb.quadHamstringRatio}x` : null;
 
     muscleBalanceWidget = `
-    <div style="margin-top: 12px; padding: 12px 14px; background-color: rgba(79, 209, 197, 0.08); border: 1px solid rgba(79, 209, 197, 0.25); border-radius: 8px;">
+    <div style="margin-top: 12px; padding: 14px; background-color: rgba(79, 209, 197, 0.08); border: 1px solid rgba(79, 209, 197, 0.25); border-radius: 10px;">
       ${renderAnatomicalBodySvg(mb)}
-      <div style="display: flex; justify-content: space-around; text-align: center; margin-top: 8px; font-size: 11px; color: #4B5563;">
-        ${pushPull ? `<div><span style="display: block; font-weight: 700; color: #0D9488;">${pushPull}</span>Push / Pull Ratio</div>` : ""}
-        ${quadHam ? `<div><span style="display: block; font-weight: 700; color: #0D9488;">${quadHam}</span>Quad / Hamstring</div>` : ""}
-      </div>
-      <div style="text-align: center; margin-top: 6px; font-size: 10px; color: #6B7280;">
-        🟢 High Stimulus &nbsp;·&nbsp; ⚪ Balanced &nbsp;·&nbsp; 🔴 Low / Neglected
+      <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top: 10px;">
+        <tr>
+          ${pushPull ? `
+          <td align="center" width="50%" style="padding: 6px; background-color: rgba(255,255,255,0.6); border: 1px solid rgba(79,209,197,0.2); border-radius: 6px;">
+            <span style="display: block; font-size: 14px; font-weight: 700; color: #0D9488; font-family: monospace;">${pushPull}</span>
+            <span style="font-size: 10px; color: #6B7280; font-weight: 600; text-transform: uppercase;">Push / Pull</span>
+          </td>` : ""}
+          ${quadHam ? `
+          <td align="center" width="50%" style="padding: 6px; margin-left: 6px; background-color: rgba(255,255,255,0.6); border: 1px solid rgba(79,209,197,0.2); border-radius: 6px;">
+            <span style="display: block; font-size: 14px; font-weight: 700; color: #0D9488; font-family: monospace;">${quadHam}</span>
+            <span style="font-size: 10px; color: #6B7280; font-weight: 600; text-transform: uppercase;">Quad / Hamstring</span>
+          </td>` : ""}
+        </tr>
+      </table>
+      <div style="text-align: center; margin-top: 8px; font-size: 10px; color: #64748B; font-weight: 500;">
+        🟢 High Stimulus &nbsp;·&nbsp; ⚪ Balanced &nbsp;·&nbsp; 🔴 Under-Trained / Neglected
       </div>
     </div>`;
   }

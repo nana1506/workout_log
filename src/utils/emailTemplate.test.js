@@ -145,7 +145,7 @@ describe("emailTemplate", () => {
       // Anatomical body visualizer
       expect(html).toContain("ANTERIOR (FRONT)");
       expect(html).toContain("POSTERIOR (BACK)");
-      expect(html).toContain("Push / Pull Ratio");
+      expect(html).toContain("Push / Pull");
 
       // Body composition rendered when data exists
       expect(html).toContain("Body Composition");
