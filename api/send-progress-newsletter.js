@@ -115,8 +115,17 @@ export default async function handler(req, res) {
       });
     }
 
-    // 9. Render email HTML template
-    const emailHtml = renderReportEmailHtml(content, periodType, periodStart, periodEnd);
+    // 9. Render email HTML template with scorecard stats and CTA
+    const stats = {
+      sessions: payload?.summary?.sessionCount || 0,
+      totalVolume: payload?.summary?.totalVolumeKg || 0,
+      prsCount: payload?.prs?.length || 0,
+    };
+    const dashboardUrl = process.env.APP_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "https://workout-log.vercel.app");
+    const emailHtml = renderReportEmailHtml(content, periodType, periodStart, periodEnd, {
+      stats,
+      dashboardUrl,
+    });
 
     // 10. Send via Resend
     const resendApiKey = process.env.RESEND_API_KEY;

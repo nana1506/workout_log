@@ -1,10 +1,67 @@
 /**
  * Utilities for rendering email HTML templates.
- * Generates a light-themed, single-column email compatible with major email clients
- * (Apple Mail, Gmail, Outlook) with 100% inline styles.
+ * Generates a light-themed, single-column email with 100% inline styles,
+ * MSO XML conditional tags, Outlook fallback colors, and rich typography.
  */
 
 import { fmtDate } from "./calculations.js";
+
+/**
+ * Escapes special HTML characters to prevent XSS / markup corruption.
+ * @param {string} str
+ * @returns {string}
+ */
+export function escapeHtml(str) {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+/**
+ * Lightweight markdown parser for safe inline email formatting.
+ * Escapes HTML entities, converts **bold** to <strong>, bulleted lists (* or -) to <ul><li>,
+ * and handles clean paragraph breaks.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function parseMarkdownToHtml(text) {
+  if (!text || typeof text !== "string") return "";
+
+  // 1. Sanitize HTML first
+  const sanitized = escapeHtml(text.trim());
+
+  // 2. Split by double newlines into block segments
+  const blocks = sanitized.split(/\n\s*\n/);
+
+  const formattedBlocks = blocks.map((block) => {
+    const lines = block.split(/\n/);
+    const isList = lines.length > 0 && lines.every((line) => /^\s*[\*\-]\s+/.test(line));
+
+    if (isList) {
+      const listItems = lines
+        .map((line) => {
+          const itemText = line.replace(/^\s*[\*\-]\s+/, "");
+          const formattedText = itemText.replace(/\*\*(.*?)\*\*/g, '<strong style="color: #111827;">$1</strong>');
+          return `<li style="margin-bottom: 5px; line-height: 1.5;">${formattedText}</li>`;
+        })
+        .join("");
+      return `<ul style="margin: 6px 0 0 0; padding-left: 20px; color: #374151; font-size: 14px; line-height: 1.5;">${listItems}</ul>`;
+    } else {
+      // Inline formatting: **bold**
+      let formatted = block.replace(/\*\*(.*?)\*\*/g, '<strong style="color: #111827;">$1</strong>');
+      // Single line breaks to <br />
+      formatted = formatted.replace(/\n/g, "<br />");
+      return `<p style="margin: 0; font-size: 14px; line-height: 1.6; color: #374151;">${formatted}</p>`;
+    }
+  });
+
+  return formattedBlocks.join("\n");
+}
 
 /**
  * Renders the HTML body for a Progress Report email.
@@ -18,12 +75,20 @@ import { fmtDate } from "./calculations.js";
  * @param {string} [content.muscleBalance] - Muscle balance & symmetry notes
  * @param {string} [content.notableEvents] - PRs, plateaus, records
  * @param {string} [content.lookingAhead] - Forward-looking coaching advice
- * @param {string} periodType - 'weekly' | 'monthly'
- * @param {string} periodStart - YYYY-MM-DD
- * @param {string} periodEnd - YYYY-MM-DD
+ * @param {Object} [content.stats] - { sessions, totalVolume, prsCount }
+ * @param {string} [periodType='weekly'] - 'weekly' | 'monthly'
+ * @param {string} [periodStart=''] - YYYY-MM-DD
+ * @param {string} [periodEnd=''] - YYYY-MM-DD
+ * @param {Object} [options={}] - Extra rendering options (stats, dashboardUrl)
  * @returns {string} Fully styled HTML string
  */
-export function renderReportEmailHtml(content, periodType = "weekly", periodStart = "", periodEnd = "") {
+export function renderReportEmailHtml(
+  content,
+  periodType = "weekly",
+  periodStart = "",
+  periodEnd = "",
+  options = {}
+) {
   const periodLabel = periodType === "monthly" ? "MONTHLY PROGRESS REPORT" : "WEEKLY PROGRESS REPORT";
   const dateRangeStr = periodStart && periodEnd
     ? `${fmtDate(periodStart)} – ${fmtDate(periodEnd)}`
@@ -31,49 +96,75 @@ export function renderReportEmailHtml(content, periodType = "weekly", periodStar
 
   const subjectText = content?.subject || `${periodLabel}: ${dateRangeStr}`;
   const highlightsText = content?.highlights || "";
+  const preheaderText = highlightsText
+    ? highlightsText.replace(/\*\*/g, "").slice(0, 140)
+    : `${periodLabel} (${dateRangeStr}) · Performance breakdown & analytics`;
 
-  // Section definitions
+  const stats = options?.stats || content?.stats || null;
+  const dashboardUrl = options?.dashboardUrl || content?.dashboardUrl || "https://workout-log.vercel.app";
+
+  // Section card definitions (excluding lookingAhead which gets dedicated callout)
   const sections = [
     { title: "Training Load &amp; Volume", icon: "🏋️‍♂️", text: content?.trainingSummary },
     { title: "Notable Events &amp; PRs", icon: "🏆", text: content?.notableEvents },
     { title: "Muscle Balance &amp; Symmetry", icon: "⚖️", text: content?.muscleBalance },
     { title: "Goal Progression", icon: "🎯", text: content?.goalProgress },
     { title: "Body Composition", icon: "📊", text: content?.bodyComposition },
-    { title: "Looking Ahead", icon: "🔮", text: content?.lookingAhead },
   ];
 
   const renderedSections = sections
     .filter((s) => s.text && typeof s.text === "string" && s.text.trim().length > 0)
     .map(
       (s) => `
-      <div style="margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid #E5E7EB;">
-        <div style="font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #4B5563; margin-bottom: 8px;">
-          ${s.icon} ${s.title}
-        </div>
-        <p style="margin: 0; font-size: 15px; line-height: 1.6; color: #1F2937;">
-          ${s.text.replace(/\n/g, "<br />")}
-        </p>
-      </div>`
+      <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 16px; background-color: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 10px; overflow: hidden;">
+        <tr>
+          <td style="padding: 16px 20px;">
+            <div style="font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #4B5563; margin-bottom: 8px;">
+              ${s.icon} ${s.title}
+            </div>
+            <div>
+              ${parseMarkdownToHtml(s.text)}
+            </div>
+          </td>
+        </tr>
+      </table>`
     )
     .join("\n");
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+  <!--[if mso]>
+  <xml>
+    <o:OfficeDocumentSettings>
+      <o:AllowPNG/>
+      <o:PixelsPerInch>96</o:PixelsPerInch>
+    </o:OfficeDocumentSettings>
+  </xml>
+  <![endif]-->
   <title>${escapeHtml(subjectText)}</title>
 </head>
 <body style="margin: 0; padding: 0; background-color: #F3F4F6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #111827; -webkit-font-smoothing: antialiased;">
-  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #F3F4F6; padding: 24px 12px;">
+  
+  <!-- Hidden Preheader Text for Inbox Previews -->
+  <div style="display: none; font-size: 1px; line-height: 1px; max-height: 0px; max-width: 0px; opacity: 0; overflow: hidden; mso-hide: all; font-family: sans-serif;">
+    ${escapeHtml(preheaderText)}
+    &zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;
+  </div>
+
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#F3F4F6" style="background-color: #F3F4F6; padding: 24px 12px;">
     <tr>
       <td align="center">
-        <!-- Main Email Container -->
-        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 600px; background-color: #FFFFFF; border-radius: 12px; overflow: hidden; border: 1px solid #E5E7EB; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+        <!-- Main Email Container (max 600px) -->
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#FFFFFF" style="max-width: 600px; background-color: #FFFFFF; border-radius: 12px; overflow: hidden; border: 1px solid #E5E7EB; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
           
-          <!-- Header Banner -->
+          <!-- Header Banner (with Outlook bgcolor fallback) -->
           <tr>
-            <td style="padding: 28px 32px 20px 32px; background: linear-gradient(135deg, #15181D 0%, #1F242D 100%); border-bottom: 3px solid #F4B740;">
+            <td bgcolor="#15181D" style="padding: 28px 32px 22px 32px; background-color: #15181D; background: linear-gradient(135deg, #15181D 0%, #1F242D 100%); border-bottom: 3px solid #F4B740;">
               <table width="100%" border="0" cellspacing="0" cellpadding="0">
                 <tr>
                   <td>
@@ -92,28 +183,86 @@ export function renderReportEmailHtml(content, periodType = "weekly", periodStar
 
           <!-- Main Content Body -->
           <tr>
-            <td style="padding: 32px 32px 24px 32px;">
+            <td style="padding: 28px 28px 24px 28px;">
+
+              <!-- Optional KPI Stat Scorecard (3-Column Metric Banner) -->
+              ${stats ? `
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 24px; background-color: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 10px; overflow: hidden;">
+                <tr>
+                  <td width="33.33%" align="center" style="padding: 16px 8px; border-right: 1px solid #E5E7EB;">
+                    <span style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #6B7280; margin-bottom: 4px;">Sessions</span>
+                    <span style="display: block; font-size: 20px; font-weight: 700; color: #111827; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                      ${stats.sessions ?? 0}
+                    </span>
+                  </td>
+                  <td width="33.33%" align="center" style="padding: 16px 8px; border-right: 1px solid #E5E7EB;">
+                    <span style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #6B7280; margin-bottom: 4px;">Total Volume</span>
+                    <span style="display: block; font-size: 20px; font-weight: 700; color: #D97706; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                      ${typeof stats.totalVolume === 'number' ? stats.totalVolume.toLocaleString() : (stats.totalVolume ?? 0)} <span style="font-size: 11px; font-weight: 500; color: #6B7280;">kg</span>
+                    </span>
+                  </td>
+                  <td width="33.33%" align="center" style="padding: 16px 8px;">
+                    <span style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #6B7280; margin-bottom: 4px;">New PRs</span>
+                    <span style="display: block; font-size: 20px; font-weight: 700; color: #059669; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                      ${stats.prsCount ?? 0}
+                    </span>
+                  </td>
+                </tr>
+              </table>
+              ` : ""}
 
               <!-- Highlights Box -->
               ${highlightsText ? `
-              <div style="background-color: #FEF9C3; border: 1px solid #FDE047; border-left: 4px solid #CA8A04; border-radius: 8px; padding: 16px 20px; margin-bottom: 28px;">
+              <div style="background-color: #FEF9C3; border: 1px solid #FDE047; border-left: 4px solid #CA8A04; border-radius: 8px; padding: 16px 20px; margin-bottom: 24px;">
                 <div style="font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #854D0E; margin-bottom: 6px;">
                   ✨ Key Takeaways
                 </div>
-                <p style="margin: 0; font-size: 15px; line-height: 1.5; color: #713F12; font-weight: 500;">
-                  ${highlightsText.replace(/\n/g, "<br />")}
-                </p>
+                <div>
+                  ${parseMarkdownToHtml(highlightsText)}
+                </div>
               </div>
               ` : ""}
 
               ${renderedSections}
+
+              ${content?.lookingAhead && typeof content.lookingAhead === "string" && content.lookingAhead.trim().length > 0 ? `
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top: 8px; margin-bottom: 20px; background-color: #EFF6FF; border: 1px solid #BFDBFE; border-left: 4px solid #2563EB; border-radius: 8px; overflow: hidden;">
+                <tr>
+                  <td style="padding: 16px 20px;">
+                    <div style="font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #1E40AF; margin-bottom: 6px;">
+                      🎯 Focus For Next Cycle
+                    </div>
+                    <div>
+                      ${parseMarkdownToHtml(content.lookingAhead)}
+                    </div>
+                  </td>
+                </tr>
+              </table>
+              ` : ""}
+
+              <!-- Primary CTA (Bulletproof Button) -->
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin: 28px 0 12px 0;">
+                <tr>
+                  <td align="center">
+                    <table border="0" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td align="center" bgcolor="#F4B740" style="border-radius: 8px; background-color: #F4B740;">
+                          <a href="${escapeHtml(dashboardUrl)}" target="_blank" style="font-size: 14px; font-weight: 700; color: #0C0E12; text-decoration: none; padding: 12px 28px; border-radius: 8px; border: 1px solid #E2A028; display: inline-block; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; letter-spacing: 0.02em;">
+                            View Detailed Analytics &rarr;
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
 
             </td>
           </tr>
 
           <!-- Footer -->
           <tr>
-            <td style="padding: 24px 32px; background-color: #F9FAFB; border-top: 1px solid #E5E7EB; text-align: center;">
+            <td bgcolor="#F9FAFB" style="padding: 24px 32px; background-color: #F9FAFB; border-top: 1px solid #E5E7EB; text-align: center;">
               <p style="margin: 0 0 6px 0; font-size: 12px; color: #6B7280;">
                 Generated automatically by your <strong>Workout Performance Dashboard</strong>.
               </p>
@@ -129,14 +278,4 @@ export function renderReportEmailHtml(content, periodType = "weekly", periodStar
   </table>
 </body>
 </html>`;
-}
-
-function escapeHtml(str) {
-  if (!str) return "";
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
 }
