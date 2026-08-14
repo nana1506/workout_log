@@ -207,13 +207,53 @@ export function renderAnatomicalBodySvg(muscleBalance) {
   const backColor = getMuscleColor("back") || getMuscleColor("lat");
   const hamstringColor = getMuscleColor("hamstring") || getMuscleColor("glute");
 
+  const getBadge = (name, color) => {
+    const isGreen = color === "#10B981";
+    const isRed = color === "#EF4444";
+    const bg = isGreen ? "#ECFDF5" : isRed ? "#FEF2F2" : "#F1F5F9";
+    const border = isGreen ? "#A7F3D0" : isRed ? "#FECACA" : "#E2E8F0";
+    const text = isGreen ? "#059669" : isRed ? "#DC2626" : "#475569";
+    const dot = isGreen ? "🟢" : isRed ? "🔴" : "⚪";
+    return `
+      <div style="margin: 2px 0; padding: 4px 8px; background-color: ${bg}; border: 1px solid ${border}; border-radius: 6px; font-size: 11px; font-weight: 600; color: ${text};">
+        ${dot} ${name}
+      </div>`;
+  };
+
   return `
-  <table border="0" cellspacing="0" cellpadding="0" align="center" style="margin: 12px auto; background-color: rgba(15, 23, 42, 0.04); border-radius: 12px; padding: 12px 6px;">
+  <!-- Anatomical Muscle Visual Matrix (100% Email Client Safe for Gmail & Outlook) -->
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin: 10px auto; background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 10px; overflow: hidden;">
+    <tr>
+      <td width="50%" valign="top" style="padding: 12px; border-right: 1px solid #E2E8F0; background-color: #F8FAFC;">
+        <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748B; margin-bottom: 8px; letter-spacing: 0.05em; text-align: center;">
+          👤 ANTERIOR (FRONT)
+        </div>
+        ${getBadge("Chest (Pectorals)", chestColor)}
+        ${getBadge("Shoulders (Deltoids)", shoulderColor)}
+        ${getBadge("Arms (Biceps)", armColor)}
+        ${getBadge("Core / Abdominals", "#64748B")}
+        ${getBadge("Quadriceps (Front Thighs)", quadColor)}
+      </td>
+      <td width="50%" valign="top" style="padding: 12px; background-color: #F8FAFC;">
+        <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748B; margin-bottom: 8px; letter-spacing: 0.05em; text-align: center;">
+          👤 POSTERIOR (BACK)
+        </div>
+        ${getBadge("Upper Back & Lats", backColor)}
+        ${getBadge("Triceps & Rear Delts", armColor)}
+        ${getBadge("Glutes & Lower Back", hamstringColor)}
+        ${getBadge("Hamstrings (Back Thighs)", hamstringColor)}
+        ${getBadge("Calves (Gastrocnemius)", "#64748B")}
+      </td>
+    </tr>
+  </table>
+
+  <!-- Embedded Vector Anatomy (for supported clients) -->
+  <table border="0" cellspacing="0" cellpadding="0" align="center" style="margin: 8px auto; background-color: rgba(15, 23, 42, 0.04); border-radius: 12px; padding: 10px 4px;">
     <tr>
       <!-- Anterior (Front) View -->
       <td align="center" valign="top" style="padding: 0 10px;">
-        <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748B; margin-bottom: 6px; letter-spacing: 0.06em;">ANTERIOR (FRONT)</div>
-        <svg width="120" height="175" viewBox="0 0 120 175" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: block; max-width: 120px; height: auto;">
+        <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748B; margin-bottom: 6px; letter-spacing: 0.06em;">FRONT VIEW</div>
+        <svg width="110" height="160" viewBox="0 0 120 175" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: block; max-width: 110px; height: auto;">
           <!-- Head & Neck -->
           <ellipse cx="60" cy="16" rx="9" ry="11" fill="#94A3B8" stroke="#334155" stroke-width="1.2" />
           <path d="M56 25 L56 32 Q60 34 64 32 L64 25 Z" fill="#94A3B8" stroke="#334155" stroke-width="1.2" />
@@ -253,8 +293,8 @@ export function renderAnatomicalBodySvg(muscleBalance) {
 
       <!-- Posterior (Back) View -->
       <td align="center" valign="top" style="padding: 0 10px; border-left: 1px dashed rgba(148, 163, 184, 0.35);">
-        <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748B; margin-bottom: 6px; letter-spacing: 0.06em;">POSTERIOR (BACK)</div>
-        <svg width="120" height="175" viewBox="0 0 120 175" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: block; max-width: 120px; height: auto;">
+        <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748B; margin-bottom: 6px; letter-spacing: 0.06em;">BACK VIEW</div>
+        <svg width="110" height="160" viewBox="0 0 120 175" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: block; max-width: 110px; height: auto;">
           <!-- Head & Neck -->
           <ellipse cx="60" cy="16" rx="9" ry="11" fill="#94A3B8" stroke="#334155" stroke-width="1.2" />
           <path d="M56 25 L56 32 Q60 34 64 32 L64 25 Z" fill="#94A3B8" stroke="#334155" stroke-width="1.2" />
