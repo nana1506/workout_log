@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getRecoveryHours, MUSCLE_RECOVERY_HOURS } from "./recovery";
+import { getRecoveryHours, MUSCLE_RECOVERY_HOURS } from "./recovery.js";
 
 describe("recovery utility tests", () => {
   describe("getRecoveryHours", () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectPlateau, detectInjuryRisk } from "./analysis";
+import { detectPlateau, detectInjuryRisk } from "./analysis.js";
 
 describe("analysis utility tests", () => {
   describe("detectPlateau", () => {

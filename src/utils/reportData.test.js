@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildReportPayload } from "./reportData";
+import { buildReportPayload } from "./reportData.js";
 
 describe("reportData", () => {
   const mockLogs = [

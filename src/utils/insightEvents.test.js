@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectRpeSpikes, detectAcwrZoneCrossings, buildAnnotationEvents } from './insightEvents';
+import { detectRpeSpikes, detectAcwrZoneCrossings, buildAnnotationEvents } from './insightEvents.js';
 
 describe('insightEvents', () => {
   describe('detectRpeSpikes', () => {

@@ -7,7 +7,7 @@ import {
   getTrainingSplit,
   getRadarMuscleCategory,
   buildOneRmSeries
-} from "./calculations";
+} from "./calculations.js";
 
 describe("calculations utility tests", () => {
   describe("estOneRM", () => {

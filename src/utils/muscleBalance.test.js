@@ -5,7 +5,7 @@ import {
   BALANCE_RATIO_WARNING,
   NEGLECT_THRESHOLD_PCT,
   FUNCTIONAL_GROUPS,
-} from './muscleBalance';
+} from './muscleBalance.js';
 
 // Helper to build a stimulus event within the default 28-day window
 function makeEvent(muscle, effectiveVolume, daysAgo = 1) {

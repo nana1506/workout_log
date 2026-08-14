@@ -3,10 +3,10 @@
  * Pure functions with zero browser or React dependencies.
  */
 
-import { buildOneRmSeries } from "./calculations";
-import { detectPlateau, detectInjuryRisk } from "./analysis";
-import { buildMuscleMapLookup, expandLogsWithMuscleStimulus } from "./muscleMap";
-import { computeMuscleBalance } from "./muscleBalance";
+import { buildOneRmSeries } from "./calculations.js";
+import { detectPlateau, detectInjuryRisk } from "./analysis.js";
+import { buildMuscleMapLookup, expandLogsWithMuscleStimulus } from "./muscleMap.js";
+import { computeMuscleBalance } from "./muscleBalance.js";
 
 /**
  * Builds a compact summary payload from raw database records for a given reporting period window.

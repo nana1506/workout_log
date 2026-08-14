@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generateCSVContent } from "./csv";
+import { generateCSVContent } from "./csv.js";
 
 describe("csv utility tests", () => {
   describe("generateCSVContent", () => {

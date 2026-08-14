@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderReportEmailHtml } from "./emailTemplate";
+import { renderReportEmailHtml } from "./emailTemplate.js";
 
 describe("emailTemplate", () => {
   it("renders a full email with all sections and valid HTML", () => {

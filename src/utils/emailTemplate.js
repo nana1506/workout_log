@@ -4,7 +4,7 @@
  * (Apple Mail, Gmail, Outlook) with 100% inline styles.
  */
 
-import { fmtDate } from "./calculations";
+import { fmtDate } from "./calculations.js";
 
 /**
  * Renders the HTML body for a Progress Report email.

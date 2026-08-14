@@ -3,7 +3,7 @@ import {
   buildMuscleMapLookup,
   getMusclesForExercise,
   expandLogsWithMuscleStimulus
-} from "./muscleMap";
+} from "./muscleMap.js";
 
 describe("muscleMap utility tests", () => {
   describe("buildMuscleMapLookup", () => {

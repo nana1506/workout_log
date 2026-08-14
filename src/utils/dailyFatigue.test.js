@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildDailyFatigueMap } from "./dailyFatigue";
+import { buildDailyFatigueMap } from "./dailyFatigue.js";
 
 describe("dailyFatigue utility tests", () => {
   describe("buildDailyFatigueMap", () => {

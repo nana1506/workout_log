@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getSubstitutions } from './substitution';
+import { getSubstitutions } from './substitution.js';
 
 // Helper to build a Map from entries
 function buildMap(entries) {

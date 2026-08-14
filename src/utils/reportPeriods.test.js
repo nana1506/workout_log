@@ -4,7 +4,7 @@ import {
   getPreviousCalendarMonth,
   getPriorPeriodWindow,
   formatDateYMD,
-} from "./reportPeriods";
+} from "./reportPeriods.js";
 
 describe("reportPeriods (strict UTC)", () => {
   describe("getPreviousIsoWeek", () => {
