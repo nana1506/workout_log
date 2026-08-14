@@ -27,8 +27,9 @@ ${JSON.stringify(payload, null, 2)}
 Instructions:
 1. Write in a warm, encouraging, yet analytical and concise tone (like an elite personal coach).
 2. Ground all insights strictly in the provided data. Do not fabricate numbers, exercises, or scans not present in the payload.
-3. If a section's underlying data is null or empty (e.g., no body composition scans logged during this period), set that field to null or provide a brief, graceful neutral note rather than inventing information.
-4. "lookingAhead" must be 1-2 forward-looking sentences based on the observed trends (e.g. fatigue management, progressing overload on specific lifts, or addressing neglected muscle groups).
+3. If no body composition scans were logged in this period (bodyComp is null or scansCount is 0), set "bodyComposition": null.
+4. "lookingAhead" must be structured as 2-3 bullet action pointers (e.g. starting with 🎯, ⚡, or 📌). Bold key terms and targets (e.g. **+2.5kg on Squats**, **RPE 8 cap**, or **Hamstrings focus**) so they can be emphasized and highlighted.
+5. "notableEvents" should celebrate PRs achieved, mention medal level (🥇 3+ PRs, 🥈 1-2 PRs, 🥉 Consistency), or note fatigue/plateau observations if present.
 
 Return ONLY a valid JSON object (no markdown fences, no preamble, no backticks) in this exact schema:
 {
@@ -39,7 +40,7 @@ Return ONLY a valid JSON object (no markdown fences, no preamble, no backticks) 
   "goalProgress": "Status update on active training goals and milestones",
   "muscleBalance": "Analysis of push/pull balance, quad/hamstring ratios, and any neglected muscle groups",
   "notableEvents": "Celebration of new PRs, plateaus detected, or fatigue/injury-risk alerts",
-  "lookingAhead": "1-2 sentence forward-looking coaching advice for the upcoming period"
+  "lookingAhead": "2-3 bulleted action pointers with key targets bolded (e.g. '* 🎯 **Add +2.5kg** on Bench Press sets next week.\\n* ⚡ **Deload** leg volume by 10% to manage fatigue.')"
 }`;
 
   const response = await fetch(

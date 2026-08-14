@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { supabase } from "../App";
 import { fmtDate } from "../utils/calculations";
+import { getVolumeEquivalent, getAchievementMedal } from "../utils/emailTemplate";
 
 export default function ReportsTab() {
   const [reports, setReports] = useState([]);
@@ -222,11 +223,24 @@ export default function ReportsTab() {
                         </div>
 
                         <div className="p-3 rounded-lg bg-[#0C0E12] border border-[#232830]">
-                          <span className="text-[10px] text-[#8A919C] uppercase font-semibold block">New PRs</span>
-                          <span className="text-sm font-semibold font-mono text-[#EF7B57]">
-                            {snapshot.prs?.length || 0} <span className="text-[10px] font-normal text-[#8A919C]">records</span>
+                          <span className="text-[10px] text-[#8A919C] uppercase font-semibold block">PRs &amp; Medal</span>
+                          <span className="text-sm font-semibold font-mono text-[#EF7B57] flex items-center gap-1">
+                            <span>{getAchievementMedal(snapshot.prs?.length || 0).medal}</span>
+                            <span>{snapshot.prs?.length || 0} <span className="text-[10px] font-normal text-[#8A919C]">records</span></span>
                           </span>
-                          <span className="text-[10px] text-[#8A919C] block">In window</span>
+                          <span className="text-[10px] text-[#8A919C] block">{getAchievementMedal(snapshot.prs?.length || 0).title}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Fun Hevy-Style Weight Equivalency Banner */}
+                    {snapshot.summary?.totalVolumeKg > 0 && (
+                      <div className="p-3.5 rounded-lg bg-[#1B1F26] border border-[#F4B740]/25 flex items-center justify-between gap-3 text-xs">
+                        <div className="flex items-center gap-2 text-[#E7E9EC]">
+                          <span className="text-base">🏋️</span>
+                          <span>
+                            Lifted <strong>{snapshot.summary.totalVolumeKg?.toLocaleString()} kg</strong> — equivalent to <strong>{getVolumeEquivalent(snapshot.summary.totalVolumeKg).description}</strong>!
+                          </span>
                         </div>
                       </div>
                     )}

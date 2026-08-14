@@ -115,7 +115,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // 9. Render email HTML template with scorecard stats and CTA
+    // 9. Render email HTML template with scorecard stats, rich visual widgets, and CTA
     const stats = {
       sessions: payload?.summary?.sessionCount || 0,
       totalVolume: payload?.summary?.totalVolumeKg || 0,
@@ -125,6 +125,7 @@ export default async function handler(req, res) {
     const emailHtml = renderReportEmailHtml(content, periodType, periodStart, periodEnd, {
       stats,
       dashboardUrl,
+      payload,
     });
 
     // 10. Send via Resend
