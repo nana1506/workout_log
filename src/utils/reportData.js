@@ -3,7 +3,7 @@
  * Pure functions with zero browser or React dependencies.
  */
 
-import { buildOneRmSeries } from "./calculations.js";
+import { buildOneRmSeries, countSessions, countSets, calcVolume } from "./calculations.js";
 import { detectPlateau, detectInjuryRisk } from "./analysis.js";
 import { buildMuscleMapLookup, expandLogsWithMuscleStimulus } from "./muscleMap.js";
 import { computeMuscleBalance } from "./muscleBalance.js";
@@ -61,16 +61,14 @@ export function buildReportPayload({
     : [];
 
   // 3. Volume & Sessions
-  const totalVolume = periodLogs.reduce((sum, r) => sum + (Number(r.weight_kg) || 0) * (Number(r.reps) || 0), 0);
-  const priorVolume = priorLogs.reduce((sum, r) => sum + (Number(r.weight_kg) || 0) * (Number(r.reps) || 0), 0);
+  const totalVolume = calcVolume(periodLogs);
+  const priorVolume = calcVolume(priorLogs);
   const volumeDeltaPct = priorVolume > 0
     ? Math.round(((totalVolume - priorVolume) / priorVolume) * 1000) / 10
     : null;
 
-  const sessionDates = [...new Set(periodLogs.map((r) => r.completed_at?.slice(0, 10)).filter(Boolean))];
-  const priorSessionDates = [...new Set(priorLogs.map((r) => r.completed_at?.slice(0, 10)).filter(Boolean))];
-  const sessionCount = sessionDates.length;
-  const priorSessionCount = priorSessionDates.length;
+  const sessionCount = countSessions(periodLogs);
+  const priorSessionCount = countSessions(priorLogs);
 
   // Average RPE in period
   const logsWithRpe = periodLogs.filter((r) => r.rpe != null && !isNaN(r.rpe));
@@ -79,7 +77,7 @@ export function buildReportPayload({
     : null;
 
   // Total Sets
-  const totalSets = periodLogs.length;
+  const totalSets = countSets(periodLogs);
 
   // 4. PRs in Window
   // Group all logs up to periodEnd by exercise

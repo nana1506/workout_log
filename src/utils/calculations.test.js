@@ -6,7 +6,12 @@ import {
   acwrZone,
   getTrainingSplit,
   getRadarMuscleCategory,
-  buildOneRmSeries
+  buildOneRmSeries,
+  getSessionKey,
+  countSessions,
+  countSets,
+  countReps,
+  calcVolume
 } from "./calculations.js";
 
 describe("calculations utility tests", () => {
@@ -114,4 +119,48 @@ describe("calculations utility tests", () => {
       expect(series[2].isPR).toBe(false); // lower weight is not a PR
     });
   });
+
+  describe("metric aggregation helpers", () => {
+    const sampleLogs = [
+      { completed_at: "2026-08-01T10:00:00Z", title: "Squat", weight_kg: 100, reps: 5, set_id: "w1-s1" },
+      { completed_at: "2026-08-01T10:05:00Z", title: "Squat", weight_kg: 100, reps: 5, set_id: "w1-s2" },
+      { completed_at: "2026-08-02T10:00:00Z", title: "Bench", weight_kg: 80, reps: 8, set_id: "w2-s1" },
+      { completed_at: "2026-08-03T10:00:00Z", title: "Deadlift", weight_kg: 120, reps: 3 } // no set_id, fallback to date
+    ];
+
+    it("getSessionKey correctly derives session from set_id or date", () => {
+      expect(getSessionKey(sampleLogs[0])).toBe("w1");
+      expect(getSessionKey(sampleLogs[1])).toBe("w1");
+      expect(getSessionKey(sampleLogs[2])).toBe("w2");
+      expect(getSessionKey(sampleLogs[3])).toBe("2026-08-03");
+      expect(getSessionKey(null)).toBe("");
+    });
+
+    it("countSessions correctly counts distinct sessions", () => {
+      expect(countSessions(sampleLogs)).toBe(3); // w1, w2, 2026-08-03
+      expect(countSessions([])).toBe(0);
+      expect(countSessions(null)).toBe(0);
+    });
+
+    it("countSets correctly returns number of set records", () => {
+      expect(countSets(sampleLogs)).toBe(4);
+      expect(countSets([])).toBe(0);
+      expect(countSets(null)).toBe(0);
+    });
+
+    it("countReps correctly sums up all repetitions", () => {
+      // 5 + 5 + 8 + 3 = 21 reps
+      expect(countReps(sampleLogs)).toBe(21);
+      expect(countReps([])).toBe(0);
+      expect(countReps(null)).toBe(0);
+    });
+
+    it("calcVolume correctly calculates total volume (weight * reps)", () => {
+      // (100*5) + (100*5) + (80*8) + (120*3) = 500 + 500 + 640 + 360 = 2000 kg
+      expect(calcVolume(sampleLogs)).toBe(2000);
+      expect(calcVolume([])).toBe(0);
+      expect(calcVolume(null)).toBe(0);
+    });
+  });
 });
+

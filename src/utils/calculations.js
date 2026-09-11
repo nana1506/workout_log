@@ -142,3 +142,51 @@ export function getHistorySlope(dataPoints) {
   if (points.length < 2) return 0;
   return linregSlope(points);
 }
+
+/**
+ * Extracts a consistent session key from a log row.
+ * Prefers the set_id session prefix (e.g. 'workout_123-s1' -> 'workout_123'),
+ * falling back to the YYYY-MM-DD date string.
+ */
+export function getSessionKey(row) {
+  if (!row) return "";
+  if (row.set_id) {
+    return row.set_id.split("-s")[0];
+  }
+  return row.completed_at ? row.completed_at.slice(0, 10) : "";
+}
+
+/**
+ * Counts the number of distinct workout sessions in a list of log rows.
+ */
+export function countSessions(rows = []) {
+  if (!Array.isArray(rows) || rows.length === 0) return 0;
+  const uniqueSessionKeys = new Set(rows.map(getSessionKey).filter(Boolean));
+  return uniqueSessionKeys.size;
+}
+
+/**
+ * Counts total sets in a list of log rows.
+ * Each valid row in the workout_log table represents 1 set.
+ */
+export function countSets(rows = []) {
+  if (!Array.isArray(rows)) return 0;
+  return rows.length;
+}
+
+/**
+ * Counts total repetitions across a list of log rows.
+ */
+export function countReps(rows = []) {
+  if (!Array.isArray(rows) || rows.length === 0) return 0;
+  return rows.reduce((sum, r) => sum + (Number(r.reps) || 0), 0);
+}
+
+/**
+ * Calculates total workload volume in kg (weight_kg * reps) across log rows.
+ */
+export function calcVolume(rows = []) {
+  if (!Array.isArray(rows) || rows.length === 0) return 0;
+  return rows.reduce((sum, r) => sum + (Number(r.weight_kg) || 0) * (Number(r.reps) || 0), 0);
+}
+

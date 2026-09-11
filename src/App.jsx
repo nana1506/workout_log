@@ -28,7 +28,9 @@ import {
   acwrZone,
   getTrainingSplit,
   getRadarMuscleCategory,
-  buildOneRmSeries
+  buildOneRmSeries,
+  countSessions,
+  calcVolume
 } from "./utils/calculations";
 import { MUSCLE_COLORS, PERIODS, FEATURES } from "./constants";
 
@@ -395,16 +397,16 @@ export default function WorkoutDashboard() {
     return { current, prior };
   }, [exerciseFilteredLogs, dateFilterMode, selectedDates, cutoff, prevCutoff, anchorDate]);
 
-  const totalVolume = kpiLogs.current.reduce((s, r) => s + (r.weight_kg || 0) * (r.reps || 0), 0);
-  const prevVolume = kpiLogs.prior.reduce((s, r) => s + (r.weight_kg || 0) * (r.reps || 0), 0);
+  const totalVolume = calcVolume(kpiLogs.current);
+  const prevVolume = calcVolume(kpiLogs.prior);
   const volumeDelta = prevVolume ? ((totalVolume - prevVolume) / prevVolume) * 100 : 0;
 
   const avgRpe = kpiLogs.current.length ? kpiLogs.current.reduce((s, r) => s + (r.rpe || 0), 0) / kpiLogs.current.length : 0;
   const prevAvgRpe = kpiLogs.prior.length ? kpiLogs.prior.reduce((s, r) => s + (r.rpe || 0), 0) / kpiLogs.prior.length : 0;
   const rpeDelta = prevAvgRpe ? ((avgRpe - prevAvgRpe) / prevAvgRpe) * 100 : 0;
 
-  const sessionsCount = new Set(kpiLogs.current.map((r) => (r.set_id ? r.set_id.split("-s")[0] : r.completed_at?.slice(0, 10)))).size;
-  const prevSessionsCount = new Set(kpiLogs.prior.map((r) => (r.set_id ? r.set_id.split("-s")[0] : r.completed_at?.slice(0, 10)))).size;
+  const sessionsCount = countSessions(kpiLogs.current);
+  const prevSessionsCount = countSessions(kpiLogs.prior);
   const sessionsDelta = prevSessionsCount ? ((sessionsCount - prevSessionsCount) / prevSessionsCount) * 100 : 0;
 
   const currentBest1RM = kpiLogs.current.length ? Math.round(Math.max(...kpiLogs.current.map(r => r.best_1rm || estOneRM(r.weight_kg, r.reps))) * 100) / 100 : 0;
