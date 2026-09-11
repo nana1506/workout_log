@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { supabase } from "../App";
 import { detectPlateau, detectInjuryRisk } from "../utils/analysis";
-import { buildOneRmSeries } from "../utils/calculations";
+import { buildOneRmSeries, toLocalDateStr } from "../utils/calculations";
 
 export default function ProgramTab({
   programsWithDays = [],
@@ -34,18 +34,14 @@ export default function ProgramTab({
     return programsWithDays.find(p => p.is_active);
   }, [programsWithDays]);
 
-  // Derive today's date string (YYYY-MM-DD) in local time
+  // Derive today's date string (YYYY-MM-DD) in WIB (Asia/Jakarta)
   const todayStr = useMemo(() => {
-    const d = new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    return toLocalDateStr(new Date());
   }, []);
 
-  // Today's weekday string in local time (e.g. "Mon")
+  // Today's weekday string in WIB (e.g. "mon", "tue", "wed", "thu", "fri", "sat", "sun")
   const todayWeekday = useMemo(() => {
-    return new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(new Date()).toLowerCase();
+    return new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Jakarta', weekday: 'short' }).format(new Date()).toLowerCase();
   }, []);
 
   // 1. Determine today's day in rotating cycle
@@ -55,11 +51,12 @@ export default function ProgramTab({
     }
     const sortedDays = [...activeProgram.days].sort((a, b) => (a.day_order || 0) - (b.day_order || 0));
     
-    // Group raw logs by local date YYYY-MM-DD
+    // Group raw logs by local date YYYY-MM-DD (WIB)
     const logsByDate = {};
     rawLogs.forEach(log => {
       if (!log.completed_at) return;
-      const dateStr = log.completed_at.slice(0, 10);
+      const dateStr = toLocalDateStr(log.completed_at);
+      if (!dateStr) return;
       if (!logsByDate[dateStr]) {
         logsByDate[dateStr] = new Set();
       }
@@ -104,9 +101,9 @@ export default function ProgramTab({
     if (!todayProgramDay || !todayProgramDay.exercises) return [];
 
     return todayProgramDay.exercises.map(ex => {
-      // Find logs matching today's date and exercise title
+      // Find logs matching today's date (WIB) and exercise title
       const todayExerciseLogs = rawLogs.filter(log => 
-        log.completed_at?.slice(0, 10) === todayStr &&
+        toLocalDateStr(log.completed_at) === todayStr &&
         (log.title || log.work_id || "").trim().toLowerCase() === ex.exercise_title.trim().toLowerCase()
       );
 

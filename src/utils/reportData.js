@@ -1,9 +1,4 @@
-/**
- * Utilities for server-side & client-side progress report data aggregation.
- * Pure functions with zero browser or React dependencies.
- */
-
-import { buildOneRmSeries, countSessions, countSets, calcVolume } from "./calculations.js";
+import { buildOneRmSeries, countSessions, countSets, calcVolume, toLocalDateStr } from "./calculations.js";
 import { detectPlateau, detectInjuryRisk } from "./analysis.js";
 import { buildMuscleMapLookup, expandLogsWithMuscleStimulus } from "./muscleMap.js";
 import { computeMuscleBalance } from "./muscleBalance.js";
@@ -44,14 +39,14 @@ export function buildReportPayload({
       ? buildMuscleMapLookup(muscleMapLookup)
       : null;
 
-  // 2. Filter Workout Logs to Current Window & Pre-period History
+  // 2. Filter Workout Logs to Current Window & Pre-period History (WIB)
   const periodLogs = (rawLogs || []).filter((r) => {
-    const d = r.completed_at?.slice(0, 10);
+    const d = toLocalDateStr(r.completed_at);
     return d && d >= periodStart && d <= periodEnd;
   });
 
   const logsUpToPeriodEnd = (rawLogs || []).filter((r) => {
-    const d = r.completed_at?.slice(0, 10);
+    const d = toLocalDateStr(r.completed_at);
     return d && d <= periodEnd;
   });
 
@@ -103,7 +98,7 @@ export function buildReportPayload({
     
     // Find PRs achieved in this period window
     series.forEach((point) => {
-      const pointDate = point.rawDate?.slice(0, 10);
+      const pointDate = toLocalDateStr(point.rawDate);
       if (point.isPR && pointDate && pointDate >= periodStart && pointDate <= periodEnd) {
         prsInWindow.push({
           exercise: exerciseTitle,

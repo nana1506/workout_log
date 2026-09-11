@@ -1,4 +1,5 @@
 // src/utils/dailyFatigue.js
+import { toLocalDateStr } from "./calculations.js";
 
 /**
  * Groups raw workout logs by date and calculates a daily fatigue level based
@@ -14,11 +15,12 @@ export function buildDailyFatigueMap(rawLogs) {
     return dailyMap;
   }
 
-  // 1. Group logs by date
+  // 1. Group logs by date (WIB)
   const dailyStats = {};
   rawLogs.forEach(log => {
     if (!log.completed_at) return;
-    const dateStr = log.completed_at.slice(0, 10); // YYYY-MM-DD
+    const dateStr = toLocalDateStr(log.completed_at); // YYYY-MM-DD in WIB
+    if (!dateStr) return;
     if (!dailyStats[dateStr]) {
       dailyStats[dateStr] = {
         volume: 0,

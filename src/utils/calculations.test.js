@@ -11,7 +11,8 @@ import {
   countSessions,
   countSets,
   countReps,
-  calcVolume
+  calcVolume,
+  toLocalDateStr
 } from "./calculations.js";
 
 describe("calculations utility tests", () => {
@@ -162,5 +163,25 @@ describe("calculations utility tests", () => {
       expect(calcVolume(null)).toBe(0);
     });
   });
+
+  describe("toLocalDateStr (WIB / Asia/Jakarta)", () => {
+    it("converts UTC timestamps correctly to Asia/Jakarta (WIB) date", () => {
+      // 2026-09-10 23:30 UTC -> 2026-09-11 06:30 WIB (UTC+7)
+      expect(toLocalDateStr("2026-09-10T23:30:00Z")).toBe("2026-09-11");
+      // 2026-09-11 02:00 UTC -> 2026-09-11 09:00 WIB
+      expect(toLocalDateStr("2026-09-11T02:00:00Z")).toBe("2026-09-11");
+    });
+
+    it("handles plain YYYY-MM-DD date strings safely", () => {
+      expect(toLocalDateStr("2026-09-11")).toBe("2026-09-11");
+    });
+
+    it("returns empty string for invalid or missing dates", () => {
+      expect(toLocalDateStr("")).toBe("");
+      expect(toLocalDateStr(null)).toBe("");
+      expect(toLocalDateStr(undefined)).toBe("");
+    });
+  });
 });
+
 

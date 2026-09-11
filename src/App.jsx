@@ -30,7 +30,8 @@ import {
   getRadarMuscleCategory,
   buildOneRmSeries,
   countSessions,
-  calcVolume
+  calcVolume,
+  toLocalDateStr
 } from "./utils/calculations";
 import { MUSCLE_COLORS, PERIODS, FEATURES } from "./constants";
 
@@ -225,6 +226,7 @@ export default function WorkoutDashboard() {
         .map((r) => ({
           ...r,
           work_id: r.workout_id || r.work_id,
+          completed_date: toLocalDateStr(r.completed_at),
         }));
 
       setRawLogs(sanitized);
@@ -299,10 +301,10 @@ export default function WorkoutDashboard() {
     return Array.from(map.values()).sort((a, b) => a.title.localeCompare(b.title));
   }, [rawLogs]);
 
-  // Unique list of dates in YYYY-MM-DD format
+  // Unique list of dates in YYYY-MM-DD format (WIB)
   const uniqueDates = useMemo(() => {
     if (!rawLogs.length) return [];
-    const dates = rawLogs.map((r) => r.completed_at?.slice(0, 10)).filter(Boolean);
+    const dates = rawLogs.map((r) => toLocalDateStr(r.completed_at)).filter(Boolean);
     return [...new Set(dates)].sort().reverse();
   }, [rawLogs]);
 
@@ -379,15 +381,15 @@ export default function WorkoutDashboard() {
     let prior = [];
     
     if (dateFilterMode === "custom") {
-      current = exerciseFilteredLogs.filter(r => selectedDates.includes(r.completed_at.slice(0, 10)));
+      current = exerciseFilteredLogs.filter(r => selectedDates.includes(toLocalDateStr(r.completed_at)));
       
       if (selectedDates.length > 0) {
         const minDate = [...selectedDates].sort()[0];
-        const exerciseDates = [...new Set(exerciseFilteredLogs.map(r => r.completed_at.slice(0, 10)))].sort().reverse();
+        const exerciseDates = [...new Set(exerciseFilteredLogs.map(r => toLocalDateStr(r.completed_at)))].sort().reverse();
         const priorDates = exerciseDates.filter(d => d < minDate);
         if (priorDates.length > 0) {
           const prevDate = priorDates[0];
-          prior = exerciseFilteredLogs.filter(r => r.completed_at.slice(0, 10) === prevDate);
+          prior = exerciseFilteredLogs.filter(r => toLocalDateStr(r.completed_at) === prevDate);
         }
       }
     } else {
@@ -503,7 +505,7 @@ export default function WorkoutDashboard() {
   // ---- Volume by muscle group ----
   const muscleVolumeLogs = useMemo(() => {
     if (dateFilterMode === "custom") {
-      return exerciseFilteredLogs.filter(r => selectedDates.includes(r.completed_at.slice(0, 10)));
+      return exerciseFilteredLogs.filter(r => selectedDates.includes(toLocalDateStr(r.completed_at)));
     }
     return exerciseFilteredLogs.filter(r => new Date(r.completed_at) >= cutoff && new Date(r.completed_at) <= anchorDate);
   }, [exerciseFilteredLogs, dateFilterMode, selectedDates, cutoff, anchorDate]);
@@ -568,7 +570,7 @@ export default function WorkoutDashboard() {
     const logsInRange = trendBaseLogs.filter(r => new Date(r.completed_at) >= cutoff);
     
     logsInRange.forEach((r) => {
-      const key = r.completed_at.slice(0, 10);
+      const key = toLocalDateStr(r.completed_at);
       bySession[key] = bySession[key] || { sum: 0, n: 0, date: r.completed_at };
       bySession[key].sum += r.rpe || 0;
       bySession[key].n += 1;
@@ -581,7 +583,7 @@ export default function WorkoutDashboard() {
   // ---- Sorted table logs for records table ----
   const tableLogs = useMemo(() => {
     if (dateFilterMode === "custom") {
-      return exerciseFilteredLogs.filter(r => selectedDates.includes(r.completed_at.slice(0, 10)));
+      return exerciseFilteredLogs.filter(r => selectedDates.includes(toLocalDateStr(r.completed_at)));
     }
     return exerciseFilteredLogs.filter(r => new Date(r.completed_at) >= cutoff && new Date(r.completed_at) <= anchorDate);
   }, [exerciseFilteredLogs, dateFilterMode, selectedDates, cutoff, anchorDate]);
@@ -958,13 +960,13 @@ export default function WorkoutDashboard() {
     if (!recommendedExerciseLogs || recommendedExerciseLogs.length === 0) return 0;
     
     // Group logs by date
-    const dates = [...new Set(recommendedExerciseLogs.map(r => r.completed_at?.slice(0, 10)).filter(Boolean))].sort();
+    const dates = [...new Set(recommendedExerciseLogs.map(r => toLocalDateStr(r.completed_at)).filter(Boolean))].sort();
     if (dates.length < 3) return 0;
     
     let watchOrElevatedCount = 0;
     for (let i = 0; i < 3; i++) {
       const activeDates = dates.slice(0, dates.length - i);
-      const filteredLogs = recommendedExerciseLogs.filter(r => activeDates.includes(r.completed_at?.slice(0, 10)));
+      const filteredLogs = recommendedExerciseLogs.filter(r => activeDates.includes(toLocalDateStr(r.completed_at)));
       const risk = detectInjuryRisk(filteredLogs);
       if (risk.level === 'watch' || risk.level === 'elevated') {
         watchOrElevatedCount++;

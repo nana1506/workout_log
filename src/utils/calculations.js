@@ -22,11 +22,45 @@ export function linregSlope(points) {
 }
 
 /**
- * Formats ISO date to "MMM DD" (e.g. "Aug 12")
+ * Formats an ISO timestamp or Date object into a YYYY-MM-DD date string
+ * in the Asia/Jakarta (WIB, UTC+7) timezone.
  */
-export function fmtDate(iso) {
+export function toLocalDateStr(iso, timeZone = "Asia/Jakarta") {
   if (!iso) return "";
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  if (typeof iso === "string" && /^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    return iso;
+  }
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) {
+      return typeof iso === "string" ? iso.slice(0, 10) : "";
+    }
+    const formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    return formatter.format(d);
+  } catch {
+    return typeof iso === "string" ? iso.slice(0, 10) : "";
+  }
+}
+
+/**
+ * Formats ISO date to "MMM DD" (e.g. "Aug 12") in WIB (Asia/Jakarta)
+ */
+export function fmtDate(iso, timeZone = "Asia/Jakarta") {
+  if (!iso) return "";
+  try {
+    const d = typeof iso === "string" && /^\d{4}-\d{2}-\d{2}$/.test(iso)
+      ? new Date(`${iso}T12:00:00Z`)
+      : new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleDateString("en-US", { timeZone, month: "short", day: "numeric" });
+  } catch {
+    return "";
+  }
 }
 
 /**
@@ -97,13 +131,13 @@ export function buildOneRmSeries(rows, isAllExercises = false) {
   rows.forEach((r) => {
     const calculated1RM = r.best_1rm || estOneRM(r.weight_kg, r.reps);
     if (isAllExercises) {
-      const dateKey = r.completed_at.slice(0, 10);
+      const dateKey = toLocalDateStr(r.completed_at);
       if (!bySession[dateKey]) {
         bySession[dateKey] = { completed_at: r.completed_at, oneRms: [] };
       }
       bySession[dateKey].oneRms.push(calculated1RM);
     } else {
-      const key = r.set_id ? r.set_id.split("-s")[0] : `${r.work_id || r.title}-${r.completed_at}`;
+      const key = r.set_id ? r.set_id.split("-s")[0] : `${r.work_id || r.title}-${toLocalDateStr(r.completed_at)}`;
       if (!bySession[key] || calculated1RM > (bySession[key]._calc1RM || 0)) {
         bySession[key] = { ...r, _calc1RM: calculated1RM };
       }
@@ -146,14 +180,14 @@ export function getHistorySlope(dataPoints) {
 /**
  * Extracts a consistent session key from a log row.
  * Prefers the set_id session prefix (e.g. 'workout_123-s1' -> 'workout_123'),
- * falling back to the YYYY-MM-DD date string.
+ * falling back to the YYYY-MM-DD date string in WIB (Asia/Jakarta).
  */
 export function getSessionKey(row) {
   if (!row) return "";
   if (row.set_id) {
     return row.set_id.split("-s")[0];
   }
-  return row.completed_at ? row.completed_at.slice(0, 10) : "";
+  return toLocalDateStr(row.completed_at);
 }
 
 /**

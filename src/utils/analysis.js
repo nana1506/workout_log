@@ -1,3 +1,5 @@
+import { toLocalDateStr } from "./calculations.js";
+
 // Linreg slope calculation helper
 export function getLinregSlope(points) {
   const n = points.length;
@@ -46,12 +48,13 @@ export function detectInjuryRisk(exerciseLogs) {
   // Sort logs chronologically
   const sortedLogs = [...exerciseLogs].sort((a, b) => new Date(a.completed_at) - new Date(b.completed_at));
   
-  // Group sets by completed_at date (slice to YYYY-MM-DD)
+  // Group sets by completed_at date in WIB (YYYY-MM-DD)
   const sessions = [];
   const groups = {};
   sortedLogs.forEach(r => {
     if (!r.completed_at) return;
-    const d = r.completed_at.slice(0, 10);
+    const d = toLocalDateStr(r.completed_at);
+    if (!d) return;
     if (!groups[d]) {
       groups[d] = { rpeValues: [], weights: [] };
       sessions.push(d);

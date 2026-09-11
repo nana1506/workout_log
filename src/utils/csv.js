@@ -1,14 +1,11 @@
-function estOneRM(weight, reps) {
-  if (!weight || !reps) return 0;
-  return Math.round(weight * (1 + reps / 30) * 10) / 10;
-}
+import { toLocalDateStr, estOneRM } from "./calculations.js";
 
 export function generateCSVContent(logs) {
   const headers = ["Date", "Exercise Title", "Muscle Group", "Weight (kg)", "Reps", "RPE", "Est. 1RM (kg)"];
   if (!logs || !logs.length) return headers.join(",");
 
   const rows = logs.map(r => [
-    r.completed_at ? r.completed_at.slice(0, 10) : "",
+    r.completed_at ? toLocalDateStr(r.completed_at) : "",
     r.title || r.work_id || "",
     r.muscle_group || "",
     r.weight_kg ?? "",
