@@ -19,7 +19,8 @@ import { buildDailyFatigueMap } from "./utils/dailyFatigue";
 import {
   buildMuscleMapLookup,
   getMusclesForExercise,
-  expandLogsWithMuscleStimulus
+  expandLogsWithMuscleStimulus,
+  normalizeMuscleGroup
 } from "./utils/muscleMap";
 import {
   estOneRM,
@@ -699,52 +700,85 @@ export default function WorkoutDashboard() {
 
   // 2. Muscle Recovery & Priorities Recommendation (using per-muscle base recovery times, secondary-aware)
   const musclePriorities = useMemo(() => {
-    if (!expandedStimulus.length) return { fullyRecovered: [], recovering: [], recommended: null };
+    if (!expandedStimulus.length) {
+      return { fullyRecovered: [], recovering: [], readyToTrain: [], extendedRest: [], allMuscles: [], recommended: null };
+    }
     
-    const muscles = [...new Set(expandedStimulus.map(s => s.stimulus_muscle).filter(Boolean))];
+    const rawMuscles = [...new Set(expandedStimulus.map(s => s.stimulus_muscle).filter(Boolean))];
     
-    const muscleStatus = muscles.map(muscle => {
-      const muscleEvents = expandedStimulus.filter(s => s.stimulus_muscle === muscle);
+    const muscleStatus = rawMuscles.map(rawMuscle => {
+      const muscle = normalizeMuscleGroup(rawMuscle);
+      const muscleEvents = expandedStimulus.filter(s => normalizeMuscleGroup(s.stimulus_muscle) === muscle);
+      if (!muscleEvents.length) return null;
+
       const latestMuscleEvent = muscleEvents.reduce((latest, s) => {
         if (!latest) return s;
         return new Date(s.completed_at) > new Date(latest.completed_at) ? s : latest;
       }, null);
       
       const lastTrained = new Date(latestMuscleEvent.completed_at);
-      const hoursSince = (now - lastTrained) / (1000 * 60 * 60);
+      const hoursSince = Math.max(0, (now - lastTrained) / (1000 * 60 * 60));
       const daysSince = Math.round((hoursSince / 24) * 10) / 10;
       
       const role = latestMuscleEvent.role;
-      const contribution = latestMuscleEvent.contribution != null ? latestMuscleEvent.contribution : 1.0;
+      const contribution = latestMuscleEvent.contribution != null ? Number(latestMuscleEvent.contribution) : 1.0;
       const baseRestHours = getRecoveryHours(muscle, latestMuscleEvent.rpe || 7);
       const restHours = baseRestHours * (role === 'secondary' ? Math.max(contribution, 0.5) : 1);
       
       const isRecovered = hoursSince >= restHours;
       const hoursRemaining = Math.max(0, restHours - hoursSince);
+      const recoveryPct = Math.min(100, Math.max(0, Math.round((hoursSince / restHours) * 100)));
+      
+      let statusCategory = 'ready';
+      if (!isRecovered) {
+        statusCategory = 'recovering';
+      } else if (daysSince > 5) {
+        statusCategory = 'extended_rest';
+      }
       
       return {
         muscle,
         lastTrained,
+        lastTrainedDate: latestMuscleEvent.completed_at,
+        latestExerciseTitle: latestMuscleEvent.title || latestMuscleEvent.work_id || "Exercise",
+        lastRpe: latestMuscleEvent.rpe || 7,
         hoursSince,
         daysSince,
         isRecovered,
         hoursRemaining,
-        restHours
+        recoveryPct,
+        restHours,
+        statusCategory
       };
-    });
+    }).filter(Boolean);
 
-    const fullyRecovered = muscleStatus
+    // Deduplicate by muscle name if any duplicate entries arose
+    const byMuscle = new Map();
+    for (const item of muscleStatus) {
+      if (!byMuscle.has(item.muscle) || item.lastTrained > byMuscle.get(item.muscle).lastTrained) {
+        byMuscle.set(item.muscle, item);
+      }
+    }
+    const uniqueMuscleStatus = Array.from(byMuscle.values());
+
+    const fullyRecovered = uniqueMuscleStatus
       .filter(m => m.isRecovered)
       .sort((a, b) => b.hoursSince - a.hoursSince);
       
-    const recovering = muscleStatus
+    const recovering = uniqueMuscleStatus
       .filter(m => !m.isRecovered)
       .sort((a, b) => a.hoursRemaining - b.hoursRemaining);
+
+    const readyToTrain = fullyRecovered.filter(m => m.daysSince <= 5);
+    const extendedRest = fullyRecovered.filter(m => m.daysSince > 5);
       
     return {
       fullyRecovered,
       recovering,
-      recommended: fullyRecovered.length > 0 ? fullyRecovered[0] : (recovering.length > 0 ? recovering[0] : null)
+      readyToTrain,
+      extendedRest,
+      allMuscles: uniqueMuscleStatus,
+      recommended: readyToTrain.length > 0 ? readyToTrain[0] : (fullyRecovered.length > 0 ? fullyRecovered[0] : (recovering.length > 0 ? recovering[0] : null))
     };
   }, [expandedStimulus, now]);
 
@@ -1621,6 +1655,7 @@ export default function WorkoutDashboard() {
                 insightDigest={insightDigest}
                 insightDigestLoading={insightDigestLoading}
                 annotationEvents={annotationEvents}
+                musclePriorities={musclePriorities}
               />
             )}
 

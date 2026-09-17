@@ -5,6 +5,7 @@ import {
   ArrowLeftRight, Shuffle
 } from "lucide-react";
 import { fmtDate, getTrainingSplit, getHistorySlope } from "../utils/calculations";
+import { MUSCLE_COLORS } from "../constants";
 import { supabase } from "../App";
 
 export default function DecisionTab({
@@ -25,13 +26,13 @@ export default function DecisionTab({
   exercisesList = [],
   bodyMetrics = []
 }) {
-  // Goal form state
   const [showAddForm, setShowAddForm] = useState(false);
   const [goalType, setGoalType] = useState("body_weight");
   const [targetValue, setTargetValue] = useState("");
   const [targetDate, setTargetDate] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState("");
+  const [muscleFilter, setMuscleFilter] = useState("all"); // "all" | "ready" | "recovering" | "extended_rest"
 
   const latestMetric = bodyMetrics[0];
   const latestWeight = latestMetric ? Number(latestMetric.weight_kg) : 0;
@@ -163,46 +164,48 @@ export default function DecisionTab({
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">
-        {/* Card 1: Recovery Status */}
+        {/* Card 1: Recovery Status & Muscle Readiness */}
         <div className="rounded-xl border border-[#232830] bg-[#15181D] p-5 flex flex-col justify-between space-y-4">
-          <div className="space-y-2">
+          <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] uppercase tracking-wider text-[#8A919C]">Recovery Status</span>
-              <Timer size={16} className="text-[#F4B740]" />
+              <div className="flex items-center gap-2">
+                <Timer size={16} className="text-[#F4B740]" />
+                <span className="text-[11px] uppercase tracking-wider text-[#8A919C] font-semibold">Recovery Status &amp; Readiness</span>
+              </div>
+              {recoveryStatus && (
+                <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-semibold ${
+                  recoveryStatus.isRecovered 
+                    ? "bg-[#4FD1C5]/10 text-[#4FD1C5] border border-[#4FD1C5]/30" 
+                    : "bg-[#F4B740]/10 text-[#F4B740] border border-[#F4B740]/30"
+                }`}>
+                  {recoveryStatus.isRecovered ? "SYSTEM READY" : recoveryStatus.countdownStr}
+                </span>
+              )}
             </div>
             
             {recoveryStatus ? (
-              <div className="space-y-4 pt-2">
-                <div className="flex items-baseline gap-2">
-                  {recoveryStatus.isRecovered ? (
-                    <div className="flex flex-col gap-1">
-                      <span className="text-2xl font-semibold text-[#4FD1C5] flex items-center gap-2" style={{ fontFamily: "'Oswald', sans-serif" }}>
-                        <CheckCircle2 size={24} /> FULLY RECOVERED
+              <div className="space-y-2 pt-1">
+                <div className="flex items-baseline justify-between">
+                  <div>
+                    {recoveryStatus.isRecovered ? (
+                      <span className="text-xl font-bold text-[#4FD1C5] flex items-center gap-1.5" style={{ fontFamily: "'Oswald', sans-serif" }}>
+                        <CheckCircle2 size={20} /> FULLY RECOVERED
                       </span>
-                      <span className="text-xs text-[#8A919C]">Ready for maximum physical stimulus.</span>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-1">
-                      <span className="text-3xl font-bold font-mono tracking-tight text-[#E7E9EC]">
+                    ) : (
+                      <span className="text-2xl font-bold font-mono tracking-tight text-[#E7E9EC]">
                         {recoveryStatus.countdownStr}
                       </span>
-                      <span className="text-xs text-[#8A919C]">Remaining until fully recovered.</span>
-                    </div>
-                  )}
+                    )}
+                  </div>
+                  <span className="text-xs font-mono font-semibold text-[#8A919C]">{Math.round(recoveryStatus.pct)}% systemic</span>
                 </div>
                 
                 {/* Recovery Progress Bar */}
-                <div className="space-y-1">
-                  <div className="flex justify-between text-[10px] text-[#8A919C]">
-                    <span>Systemic Recovery Status</span>
-                    <span>{Math.round(recoveryStatus.pct)}%</span>
-                  </div>
-                  <div className="w-full h-2 bg-[#0C0E12] rounded-full overflow-hidden border border-[#232830]">
-                    <div
-                      className="h-full bg-gradient-to-r from-[#4FD1C5] to-[#F4B740] rounded-full transition-all duration-500"
-                      style={{ width: `${Math.min(100, Math.max(0, recoveryStatus.pct))}%` }}
-                    />
-                  </div>
+                <div className="w-full h-2 bg-[#0C0E12] rounded-full overflow-hidden border border-[#232830]">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#4FD1C5] via-[#F4B740] to-[#4FD1C5] rounded-full transition-all duration-500"
+                    style={{ width: `${Math.min(100, Math.max(0, recoveryStatus.pct))}%` }}
+                  />
                 </div>
               </div>
             ) : (
@@ -212,28 +215,137 @@ export default function DecisionTab({
             )}
           </div>
 
-          {/* Muscle Priority Breakdown list */}
-          <div className="space-y-2 pt-2 border-t border-[#232830]">
-            <span className="text-[10px] uppercase font-bold text-[#8A919C] tracking-wide block">Individual Recovery Focus</span>
-            <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-1">
-              {musclePriorities.fullyRecovered.map(m => (
-                <div key={m.muscle} className="flex items-center justify-between text-xs p-1.5 rounded bg-[#0C0E12]/50 border border-[#1E222A]">
-                  <span className="capitalize font-medium">{m.muscle}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[9px] text-[#8A919C]">{m.daysSince}d since training</span>
-                    <span className="px-1.5 py-0.5 rounded text-[8px] bg-[#4FD1C5]/10 text-[#4FD1C5] border border-[#4FD1C5]/20 font-semibold">READY</span>
-                  </div>
-                </div>
-              ))}
-              {musclePriorities.recovering.map(m => (
-                <div key={m.muscle} className="flex items-center justify-between text-xs p-1.5 rounded bg-[#0C0E12]/50 border border-[#1E222A]">
-                  <span className="capitalize font-medium">{m.muscle}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[9px] text-[#8A919C]">{m.hoursRemaining.toFixed(0)}h left</span>
-                    <span className="px-1.5 py-0.5 rounded text-[8px] bg-[#F4B740]/10 text-[#F4B740] border border-[#F4B740]/20 font-semibold">RECOVERING</span>
-                  </div>
-                </div>
-              ))}
+          {/* Muscle Readiness Breakdown List with Filter Tabs */}
+          <div className="space-y-3 pt-3 border-t border-[#232830]">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[10px] uppercase font-bold text-[#8A919C] tracking-wide block">
+                Target Muscle Readiness
+              </span>
+              <div className="flex flex-wrap gap-1 bg-[#0C0E12] p-0.5 rounded border border-[#232830] text-[9px] font-medium">
+                <button
+                  onClick={() => setMuscleFilter("all")}
+                  className={`px-2 py-0.5 rounded transition-all ${
+                    muscleFilter === "all" ? "bg-[#1F242D] text-[#F4B740] font-semibold" : "text-[#8A919C] hover:text-[#E7E9EC]"
+                  }`}
+                >
+                  All ({(musclePriorities.allMuscles || []).length})
+                </button>
+                <button
+                  onClick={() => setMuscleFilter("ready")}
+                  className={`px-2 py-0.5 rounded transition-all ${
+                    muscleFilter === "ready" ? "bg-[#1F242D] text-[#4FD1C5] font-semibold" : "text-[#8A919C] hover:text-[#E7E9EC]"
+                  }`}
+                >
+                  Ready ({(musclePriorities.readyToTrain || []).length})
+                </button>
+                <button
+                  onClick={() => setMuscleFilter("recovering")}
+                  className={`px-2 py-0.5 rounded transition-all ${
+                    muscleFilter === "recovering" ? "bg-[#1F242D] text-[#F4B740] font-semibold" : "text-[#8A919C] hover:text-[#E7E9EC]"
+                  }`}
+                >
+                  Recovering ({(musclePriorities.recovering || []).length})
+                </button>
+                <button
+                  onClick={() => setMuscleFilter("extended_rest")}
+                  className={`px-2 py-0.5 rounded transition-all ${
+                    muscleFilter === "extended_rest" ? "bg-[#1F242D] text-[#C084FC] font-semibold" : "text-[#8A919C] hover:text-[#E7E9EC]"
+                  }`}
+                >
+                  Rested &gt;5d ({(musclePriorities.extendedRest || []).length})
+                </button>
+              </div>
+            </div>
+
+            {/* Muscle Items List */}
+            <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+              {(() => {
+                const all = musclePriorities.allMuscles || [];
+                let items = all;
+                if (muscleFilter === "ready") items = musclePriorities.readyToTrain || [];
+                else if (muscleFilter === "recovering") items = musclePriorities.recovering || [];
+                else if (muscleFilter === "extended_rest") items = musclePriorities.extendedRest || [];
+
+                if (items.length === 0) {
+                  return (
+                    <div className="py-4 text-center text-xs text-[#8A919C] italic">
+                      No muscles matching this filter.
+                    </div>
+                  );
+                }
+
+                return items.map((m) => {
+                  const muscleColor = MUSCLE_COLORS[m.muscle] || "#8A919C";
+                  const splitInfo = getTrainingSplit(m.muscle);
+                  const isReady = m.statusCategory === "ready";
+                  const isRecovering = m.statusCategory === "recovering";
+                  const isExtendedRest = m.statusCategory === "extended_rest";
+
+                  let badgeLabel = "READY";
+                  let badgeStyle = "bg-[#4FD1C5]/10 text-[#4FD1C5] border-[#4FD1C5]/30";
+                  let durationText = `${m.daysSince === 0 ? "Trained today" : m.daysSince === 1 ? "1d rested" : `${m.daysSince}d rested`}`;
+
+                  if (isRecovering) {
+                    badgeLabel = `${m.hoursRemaining.toFixed(0)}h LEFT`;
+                    badgeStyle = "bg-[#F4B740]/10 text-[#F4B740] border-[#F4B740]/30";
+                    durationText = `${Math.round(m.recoveryPct)}% recovered`;
+                  } else if (isExtendedRest) {
+                    badgeLabel = "RESTED";
+                    badgeStyle = "bg-purple-500/10 text-purple-300 border-purple-500/30";
+                    durationText = `${m.daysSince}d since training`;
+                  }
+
+                  return (
+                    <div
+                      key={m.muscle}
+                      className="p-2 rounded-lg bg-[#0C0E12]/60 border border-[#1E222A] hover:border-[#2A313C] transition-colors space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: muscleColor }}
+                          />
+                          <span className="capitalize font-semibold text-xs text-[#E7E9EC]">
+                            {m.muscle.replace(/_/g, " ")}
+                          </span>
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-[#1B1F26] text-[#8A919C] border border-[#232830]">
+                            {splitInfo.split}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-[#8A919C] font-mono">{durationText}</span>
+                          <span className={`px-1.5 py-0.5 rounded text-[8px] font-semibold font-mono border ${badgeStyle}`}>
+                            {badgeLabel}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Mini recovery bar */}
+                      <div className="w-full h-1 bg-[#15181D] rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-300 ${
+                            isRecovering
+                              ? "bg-[#F4B740]"
+                              : isExtendedRest
+                              ? "bg-purple-400"
+                              : "bg-[#4FD1C5]"
+                          }`}
+                          style={{ width: `${m.recoveryPct}%` }}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between text-[9px] text-[#8A919C] pt-0.5">
+                        <span className="truncate max-w-[180px]">
+                          Last: <strong className="text-[#E7E9EC] font-normal">{m.latestExerciseTitle}</strong>
+                        </span>
+                        <span>{fmtDate(m.lastTrainedDate || m.lastTrained)}</span>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </div>
         </div>

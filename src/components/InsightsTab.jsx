@@ -7,7 +7,7 @@ import {
 import {
   Flame, Trophy, Activity, CalendarCheck, Rocket, Gauge,
   Download, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle,
-  Sparkles, RefreshCw
+  Sparkles, RefreshCw, Timer, CheckCircle2
 } from "lucide-react";
 import { KpiCard, MetricCard, CustomTooltip, RadarTooltip, VolumeTooltip } from "./shared/SharedWidgets";
 import TrainingCalendarHeatmap from "./TrainingCalendarHeatmap";
@@ -52,7 +52,8 @@ export default function InsightsTab({
   exportToCSV,
   insightDigest = null,
   insightDigestLoading = false,
-  annotationEvents = []
+  annotationEvents = [],
+  musclePriorities = null
 }) {
   const captions = insightDigest?.captions || {};
 
@@ -134,9 +135,9 @@ export default function InsightsTab({
       </div>
 
       {/* KPI Row 2 — training-science metrics */}
-      <div className="relative z-0">
-        <p className="text-[11px] uppercase tracking-wider text-[#8A919C] mb-2">Load &amp; Recovery</p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="relative z-0 space-y-3">
+        <p className="text-[11px] uppercase tracking-wider text-[#8A919C]">Load &amp; Muscle Readiness</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <MetricCard
             icon={Rocket}
             label={selectedExerciseId === "all" ? "Progress Rate · Overall" : `Progress Rate · ${activeExercise.title}`}
@@ -155,7 +156,66 @@ export default function InsightsTab({
             subtitle={acwrInfo.label}
             subtitleColor={acwrInfo.color}
           />
+          <MetricCard
+            icon={Timer}
+            label="Muscle Readiness"
+            value={musclePriorities ? `${(musclePriorities.readyToTrain || []).length}/${(musclePriorities.allMuscles || []).length}` : "Ready"}
+            unit="ready"
+            accent="#4FD1C5"
+            subtitle={
+              musclePriorities?.recommended
+                ? `Prime Target: ${musclePriorities.recommended.muscle.toUpperCase()} (${musclePriorities.recommended.daysSince}d rested)`
+                : "Tracking stimulus"
+            }
+            subtitleColor="#4FD1C5"
+          />
         </div>
+
+        {/* Quick Muscle Readiness Badges Preview */}
+        {musclePriorities && (musclePriorities.allMuscles || []).length > 0 && (
+          <div className="rounded-xl border border-[#232830] bg-[#15181D] p-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[10px] uppercase font-bold text-[#8A919C] tracking-wide">
+                Readiness State:
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {(musclePriorities.readyToTrain || []).slice(0, 5).map((m) => (
+                  <span
+                    key={m.muscle}
+                    className="text-[10px] px-2 py-0.5 rounded border border-[#4FD1C5]/30 bg-[#4FD1C5]/10 text-[#4FD1C5] font-mono flex items-center gap-1"
+                    title={`Last trained: ${m.latestExerciseTitle} (${m.daysSince}d ago)`}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#4FD1C5]" />
+                    <span className="capitalize font-sans font-medium">{m.muscle.replace(/_/g, " ")}</span>
+                    <span className="text-[9px] opacity-75">{m.daysSince}d</span>
+                  </span>
+                ))}
+                {(musclePriorities.recovering || []).slice(0, 4).map((m) => (
+                  <span
+                    key={m.muscle}
+                    className="text-[10px] px-2 py-0.5 rounded border border-[#F4B740]/30 bg-[#F4B740]/10 text-[#F4B740] font-mono flex items-center gap-1"
+                    title={`Recovering from ${m.latestExerciseTitle}. ${m.hoursRemaining.toFixed(0)}h left`}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#F4B740]" />
+                    <span className="capitalize font-sans font-medium">{m.muscle.replace(/_/g, " ")}</span>
+                    <span className="text-[9px] opacity-75">{m.hoursRemaining.toFixed(0)}h</span>
+                  </span>
+                ))}
+                {(musclePriorities.extendedRest || []).slice(0, 4).map((m) => (
+                  <span
+                    key={m.muscle}
+                    className="text-[10px] px-2 py-0.5 rounded border border-purple-500/30 bg-purple-500/10 text-purple-300 font-mono flex items-center gap-1"
+                    title={`Extended rest: ${m.daysSince}d since last trained (${m.latestExerciseTitle})`}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+                    <span className="capitalize font-sans font-medium">{m.muscle.replace(/_/g, " ")}</span>
+                    <span className="text-[9px] opacity-75">{m.daysSince}d</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Muscle Split Balance Radar Chart Card */}

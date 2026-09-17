@@ -1,5 +1,5 @@
 export const MUSCLE_RECOVERY_HOURS = {
-  // Small muscles (recover faster ~24-36h)
+  // Small/Medium muscles (recover faster ~24-36h)
   biceps: 24,
   triceps: 24,
   forearms: 24,
@@ -8,6 +8,9 @@ export const MUSCLE_RECOVERY_HOURS = {
   abs: 24,
   shoulders: 36,
   deltoids: 36,
+  traps: 36,
+  abductors: 36,
+  adductors: 36,
   chest: 48,
   pecs: 48,
   

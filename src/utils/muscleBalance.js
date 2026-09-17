@@ -16,7 +16,7 @@ export const NEGLECT_THRESHOLD_PCT = 0.10;
 // ── Push / Pull / Legs classification ───────────────────────────────────
 export const FUNCTIONAL_GROUPS = {
   push: ['chest', 'shoulders', 'triceps'],
-  pull: ['upper_back', 'lats', 'biceps'],
+  pull: ['upper_back', 'lats', 'biceps', 'traps'],
   legs_anterior: ['quadriceps'],
   legs_posterior: ['hamstrings', 'glutes'],
 };

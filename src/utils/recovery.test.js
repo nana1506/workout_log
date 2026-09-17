@@ -21,9 +21,12 @@ describe("recovery utility tests", () => {
       expect(getRecoveryHours("triceps", 5)).toBeCloseTo(19.2, 5);
     });
 
-    it("should handle normalization of muscle names", () => {
+    it("should handle normalization of muscle names and compute traps recovery correctly", () => {
       // "Upper Back" -> "upper_back" (base 54h, RPE 7 multiplier 1.2 -> 64.8)
       expect(getRecoveryHours("Upper Back", 7)).toBeCloseTo(64.8, 5);
+      // "traps" base 36h, RPE 7 multiplier 1.2 -> 43.2
+      expect(getRecoveryHours("traps", 7)).toBeCloseTo(43.2, 5);
+      expect(getRecoveryHours("Traps", 8)).toBe(54); // 36 * 1.5
     });
   });
 });
