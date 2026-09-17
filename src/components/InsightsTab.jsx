@@ -68,7 +68,7 @@ export default function InsightsTab({
   musclePriorities = null
 }) {
   const [volumeViewMode, setVolumeViewMode] = useState("stacked"); // "stacked" | "ranked"
-  const [readinessFilter, setReadinessFilter] = useState("all"); // "all" | "ready" | "recovering" | "fatigued"
+  const [readinessFilter, setReadinessFilter] = useState("ready"); // "ready" | "recovering" | "fatigued" | "all"
   const captions = insightDigest?.captions || {};
 
   return (
@@ -187,8 +187,8 @@ export default function InsightsTab({
         </div>
       </div>
 
-      {/* Task 3: Muscle Readiness Recovery Grid */}
-      <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0 space-y-4">
+      {/* Task 3: Muscle Readiness Recovery Overview (Minimalist) */}
+      <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold flex items-center gap-1.5 text-[#E7E9EC]">
@@ -196,20 +196,12 @@ export default function InsightsTab({
               Muscle Readiness &amp; Recovery Status
             </h2>
             <p className="text-xs text-[#8A919C] mt-0.5">
-              Elapsed rest duration classification: <span className="text-[#4FD1C5] font-medium">&gt;48h Ready</span> · <span className="text-[#F4B740] font-medium">24–48h Recovering</span> · <span className="text-[#EF7B57] font-medium">&lt;24h Fatigued</span>
+              Elapsed rest duration classification (&gt;48h Ready · 24–48h Recovering · &lt;24h Fatigued)
             </p>
           </div>
 
-          {/* Filter Pills */}
+          {/* Filter Pills — Ready first */}
           <div className="flex bg-[#0C0E12] rounded-lg p-0.5 border border-[#232830] text-[10px] uppercase font-semibold tracking-wider">
-            <button
-              onClick={() => setReadinessFilter("all")}
-              className={`px-2.5 py-1 rounded-md transition-all ${
-                readinessFilter === "all" ? "bg-[#1B1F26] text-[#E7E9EC]" : "text-[#8A919C] hover:text-[#E7E9EC]"
-              }`}
-            >
-              All ({(musclePriorities?.allMuscles || []).length})
-            </button>
             <button
               onClick={() => setReadinessFilter("ready")}
               className={`px-2.5 py-1 rounded-md transition-all flex items-center gap-1 ${
@@ -237,11 +229,19 @@ export default function InsightsTab({
               <span className="w-1.5 h-1.5 rounded-full bg-[#EF7B57]" />
               Fatigued ({(musclePriorities?.fatiguedMuscles || []).length})
             </button>
+            <button
+              onClick={() => setReadinessFilter("all")}
+              className={`px-2.5 py-1 rounded-md transition-all ${
+                readinessFilter === "all" ? "bg-[#1B1F26] text-[#E7E9EC]" : "text-[#8A919C] hover:text-[#E7E9EC]"
+              }`}
+            >
+              All ({(musclePriorities?.allMuscles || []).length})
+            </button>
           </div>
         </div>
 
-        {/* Grid Layout of Muscle Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5">
+        {/* Minimal Grid Layout of Muscle Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
           {(() => {
             const all = musclePriorities?.allMuscles || [];
             let list = all;
@@ -251,8 +251,8 @@ export default function InsightsTab({
 
             if (!list.length) {
               return (
-                <div className="col-span-full py-6 text-center text-xs text-[#8A919C] italic">
-                  No muscle groups found in this readiness category.
+                <div className="col-span-full py-5 text-center text-xs text-[#8A919C] italic">
+                  No muscles in this category.
                 </div>
               );
             }
@@ -263,60 +263,35 @@ export default function InsightsTab({
               const isFatigued = m.readinessStatus === "fatigued";
               const color = MUSCLE_COLORS[m.muscle] || "#8A919C";
 
-              // Badge styling
-              let badgeBg = "bg-[#4FD1C5]/10 text-[#4FD1C5] border-[#4FD1C5]/30";
-              let badgeText = "READY";
+              let badgeBg = "bg-[#4FD1C5]/10 text-[#4FD1C5] border-[#4FD1C5]/25";
               let restText = m.daysSince >= 1 ? `${m.daysSince}d rested` : `${Math.round(m.hoursSince)}h rested`;
-              let barColor = "bg-[#4FD1C5]";
 
               if (isFatigued) {
-                badgeBg = "bg-[#EF7B57]/10 text-[#EF7B57] border-[#EF7B57]/30";
-                badgeText = "FATIGUED";
-                restText = `${Math.round(m.hoursSince)}h elapsed`;
-                barColor = "bg-[#EF7B57]";
+                badgeBg = "bg-[#EF7B57]/10 text-[#EF7B57] border-[#EF7B57]/25";
+                restText = `${Math.round(m.hoursSince)}h ago`;
               } else if (isRecovering) {
-                badgeBg = "bg-[#F4B740]/10 text-[#F4B740] border-[#F4B740]/30";
-                badgeText = "RECOVERING";
+                badgeBg = "bg-[#F4B740]/10 text-[#F4B740] border-[#F4B740]/25";
                 restText = `${Math.round(m.hoursRemaining)}h left`;
-                barColor = "bg-[#F4B740]";
               }
 
               return (
                 <div
                   key={m.muscle}
-                  className="p-3 rounded-xl bg-[#0C0E12]/60 border border-[#1E222A] hover:border-[#2A313C] transition-all space-y-2"
+                  className="p-2.5 rounded-lg bg-[#0C0E12]/60 border border-[#1E222A] hover:border-[#2A313C] flex flex-col justify-between gap-1.5 transition-all"
+                  title={`Last trained: ${m.latestExerciseTitle} (${fmtDate(m.lastTrainedDate || m.lastTrained)})`}
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                      <span className="capitalize font-semibold text-xs text-[#E7E9EC]">
-                        {m.muscle.replace(/_/g, " ")}
-                      </span>
-                    </div>
-                    <span className={`px-1.5 py-0.5 rounded text-[8px] font-semibold font-mono border ${badgeBg}`}>
-                      {badgeText}
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                    <span className="capitalize font-medium text-xs text-[#E7E9EC] truncate">
+                      {m.muscle.replace(/_/g, " ")}
                     </span>
                   </div>
 
-                  {/* Progress bar */}
-                  <div className="space-y-1">
-                    <div className="w-full h-1.5 bg-[#15181D] rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-300 ${barColor}`}
-                        style={{ width: `${Math.min(100, Math.max(5, m.recoveryPct || (isReady ? 100 : (m.hoursSince / 48) * 100)))}%` }}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between text-[10px] text-[#8A919C]">
-                      <span>{restText}</span>
-                      <span className="font-mono text-[9px]">{m.recoveryPct}% recovery</span>
-                    </div>
-                  </div>
-
-                  <div className="text-[10px] text-[#8A919C] pt-1 border-t border-[#1E222A] flex items-center justify-between truncate">
-                    <span className="truncate max-w-[140px]" title={m.latestExerciseTitle}>
-                      Last: <strong className="text-[#E7E9EC] font-normal">{m.latestExerciseTitle}</strong>
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="text-[#8A919C] font-mono">{restText}</span>
+                    <span className={`px-1.5 py-0.2 rounded text-[8px] font-semibold font-mono border ${badgeBg}`}>
+                      {(m.readinessLabel || "READY").toUpperCase()}
                     </span>
-                    <span className="font-mono text-[9px] shrink-0">{fmtDate(m.lastTrainedDate || m.lastTrained)}</span>
                   </div>
                 </div>
               );
