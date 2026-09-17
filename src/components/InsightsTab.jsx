@@ -69,6 +69,7 @@ export default function InsightsTab({
 }) {
   const [volumeViewMode, setVolumeViewMode] = useState("stacked"); // "stacked" | "ranked"
   const [readinessFilter, setReadinessFilter] = useState("ready"); // "ready" | "recovering" | "fatigued" | "all"
+  const [activeRpeIndex, setActiveRpeIndex] = useState(null);
   const captions = insightDigest?.captions || {};
 
   return (
@@ -317,16 +318,29 @@ export default function InsightsTab({
                       outerRadius={78}
                       paddingAngle={4}
                       dataKey="count"
+                      onMouseEnter={(_, index) => setActiveRpeIndex(index)}
+                      onMouseLeave={() => setActiveRpeIndex(null)}
                     >
                       {rpeDistribution.buckets.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} stroke="#15181D" strokeWidth={2} />
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={entry.color}
+                          stroke="#15181D"
+                          strokeWidth={activeRpeIndex === index ? 3 : 2}
+                          opacity={activeRpeIndex === null || activeRpeIndex === index ? 1 : 0.6}
+                        />
                       ))}
                     </Pie>
-                    <Tooltip content={<RpeDistributionTooltip />} />
+                    <Tooltip
+                      content={<RpeDistributionTooltip />}
+                      allowEscapeViewBox
+                      wrapperStyle={{ zIndex: 50, pointerEvents: "none" }}
+                      offset={18}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
-                {/* Centered Total Summary */}
-                <div className="absolute flex flex-col items-center justify-center pointer-events-none">
+                {/* Centered Total Summary — hidden smoothly while hovering to eliminate overlap */}
+                <div className={`absolute flex flex-col items-center justify-center pointer-events-none transition-opacity duration-150 ${activeRpeIndex !== null ? "opacity-0" : "opacity-100"}`}>
                   <span className="text-xl font-bold font-mono text-[#E7E9EC]">{rpeDistribution.totalSets}</span>
                   <span className="text-[9px] uppercase tracking-wider text-[#8A919C]">Total Sets</span>
                 </div>
