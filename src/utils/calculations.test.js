@@ -12,7 +12,9 @@ import {
   countSets,
   countReps,
   calcVolume,
-  toLocalDateStr
+  toLocalDateStr,
+  buildVolumeRpeSeries,
+  computeRpeDistribution
 } from "./calculations.js";
 
 describe("calculations utility tests", () => {
@@ -182,6 +184,69 @@ describe("calculations utility tests", () => {
       expect(toLocalDateStr(undefined)).toBe("");
     });
   });
+
+  describe("buildVolumeRpeSeries", () => {
+    it("aggregates session volume load and avg RPE accurately", () => {
+      const logs = [
+        { completed_at: "2026-09-10T10:00:00Z", set_id: "s1-1", weight_kg: 100, reps: 5, rpe: 8 },
+        { completed_at: "2026-09-10T10:05:00Z", set_id: "s1-2", weight_kg: 100, reps: 5, rpe: 9 },
+        { completed_at: "2026-09-12T10:00:00Z", set_id: "s2-1", weight_kg: 80, reps: 10, rpe: 7 }
+      ];
+
+      const series = buildVolumeRpeSeries(logs);
+      expect(series).toHaveLength(2);
+      expect(series[0].volume).toBe(1000); // 500 + 500
+      expect(series[0].rpe).toBe(8.5); // (8 + 9) / 2
+      expect(series[0].sets).toBe(2);
+      expect(series[1].volume).toBe(800); // 80 * 10
+      expect(series[1].rpe).toBe(7);
+      expect(series[1].sets).toBe(1);
+    });
+
+    it("handles empty or null logs safely", () => {
+      expect(buildVolumeRpeSeries([])).toEqual([]);
+      expect(buildVolumeRpeSeries(null)).toEqual([]);
+    });
+  });
+
+  describe("computeRpeDistribution", () => {
+    it("buckets working sets into Light, Moderate, and High Strain categories", () => {
+      const logs = [
+        { weight_kg: 50, reps: 10, rpe: 6 },   // Light (< 7.0) -> vol = 500
+        { weight_kg: 100, reps: 5, rpe: 7.5 }, // Moderate (7.0 - 8.5) -> vol = 500
+        { weight_kg: 100, reps: 5, rpe: 8.0 }, // Moderate (7.0 - 8.5) -> vol = 500
+        { weight_kg: 120, reps: 3, rpe: 9.5 }  // High Strain (> 8.5) -> vol = 360
+      ];
+
+      const res = computeRpeDistribution(logs);
+      expect(res.totalSets).toBe(4);
+      expect(res.totalVolume).toBe(1860);
+
+      const light = res.buckets.find(b => b.key === "light");
+      const moderate = res.buckets.find(b => b.key === "moderate");
+      const high = res.buckets.find(b => b.key === "high");
+
+      expect(light.count).toBe(1);
+      expect(light.pct).toBe(25);
+      expect(light.volume).toBe(500);
+
+      expect(moderate.count).toBe(2);
+      expect(moderate.pct).toBe(50);
+      expect(moderate.volume).toBe(1000);
+
+      expect(high.count).toBe(1);
+      expect(high.pct).toBe(25);
+      expect(high.volume).toBe(360);
+    });
+
+    it("returns zero counts gracefully on empty logs", () => {
+      const res = computeRpeDistribution([]);
+      expect(res.totalSets).toBe(0);
+      expect(res.buckets).toHaveLength(3);
+      expect(res.buckets[0].count).toBe(0);
+    });
+  });
 });
+
 
 

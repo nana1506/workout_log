@@ -224,3 +224,120 @@ export function calcVolume(rows = []) {
   return rows.reduce((sum, r) => sum + (Number(r.weight_kg) || 0) * (Number(r.reps) || 0), 0);
 }
 
+/**
+ * Builds dual-axis session time-series with both total Volume (kg) and average RPE.
+ */
+export function buildVolumeRpeSeries(rows = [], cutoff = new Date(0)) {
+  if (!Array.isArray(rows)) return [];
+  const bySession = {};
+
+  const logsInRange = rows.filter(r => r.completed_at && new Date(r.completed_at) >= cutoff);
+
+  logsInRange.forEach((r) => {
+    const key = toLocalDateStr(r.completed_at);
+    if (!bySession[key]) {
+      bySession[key] = {
+        key,
+        date: fmtDate(r.completed_at),
+        rawDate: r.completed_at,
+        volume: 0,
+        rpeSum: 0,
+        rpeCount: 0,
+        sets: 0,
+        weights: [],
+      };
+    }
+    const setVolume = (Number(r.weight_kg) || 0) * (Number(r.reps) || 0);
+    bySession[key].volume += setVolume;
+    bySession[key].sets += 1;
+    if (r.weight_kg) bySession[key].weights.push(Number(r.weight_kg));
+    if (r.rpe != null && !isNaN(r.rpe) && Number(r.rpe) > 0) {
+      bySession[key].rpeSum += Number(r.rpe);
+      bySession[key].rpeCount += 1;
+    }
+  });
+
+  return Object.values(bySession)
+    .sort((a, b) => new Date(a.rawDate) - new Date(b.rawDate))
+    .map((s) => {
+      const avgRpe = s.rpeCount > 0 ? Math.round((s.rpeSum / s.rpeCount) * 10) / 10 : 7.0;
+      const avgWeight = s.weights.length ? Math.round(s.weights.reduce((a, b) => a + b, 0) / s.weights.length) : 0;
+      return {
+        key: s.key,
+        date: s.date,
+        rawDate: s.rawDate,
+        volume: Math.round(s.volume),
+        rpe: avgRpe,
+        sets: s.sets,
+        avgWeight,
+        isRpeSpike: avgRpe >= 8.5
+      };
+    });
+}
+
+/**
+ * Aggregates working sets into 3 RPE intensity distribution buckets:
+ * - Light / Warmup (RPE < 7.0)
+ * - Hypertrophy / Moderate (RPE 7.0 - 8.5)
+ * - High Strain / Peak (RPE > 8.5)
+ */
+export function computeRpeDistribution(rows = []) {
+  const defaultBuckets = [
+    { name: "Light / Warmup", key: "light", range: "< 7.0", count: 0, pct: 0, volume: 0, avgWeight: 0, color: "#4FD1C5" },
+    { name: "Hypertrophy / Moderate", key: "moderate", range: "7.0 - 8.5", count: 0, pct: 0, volume: 0, avgWeight: 0, color: "#F4B740" },
+    { name: "High Strain / Peak", key: "high", range: "> 8.5", count: 0, pct: 0, volume: 0, avgWeight: 0, color: "#EF7B57" }
+  ];
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return {
+      totalSets: 0,
+      totalVolume: 0,
+      buckets: defaultBuckets
+    };
+  }
+
+  const bucketsMap = {
+    light: { name: "Light / Warmup", key: "light", range: "< 7.0", count: 0, volume: 0, weightSum: 0, color: "#4FD1C5" },
+    moderate: { name: "Hypertrophy / Moderate", key: "moderate", range: "7.0 - 8.5", count: 0, volume: 0, weightSum: 0, color: "#F4B740" },
+    high: { name: "High Strain / Peak", key: "high", range: "> 8.5", count: 0, volume: 0, weightSum: 0, color: "#EF7B57" }
+  };
+
+  let totalSets = 0;
+  let totalVolume = 0;
+
+  for (const r of rows) {
+    totalSets += 1;
+    const rpe = Number(r.rpe);
+    const setVol = (Number(r.weight_kg) || 0) * (Number(r.reps) || 0);
+    const weight = Number(r.weight_kg) || 0;
+    totalVolume += setVol;
+
+    if (!rpe || isNaN(rpe) || rpe < 7.0) {
+      bucketsMap.light.count += 1;
+      bucketsMap.light.volume += setVol;
+      bucketsMap.light.weightSum += weight;
+    } else if (rpe <= 8.5) {
+      bucketsMap.moderate.count += 1;
+      bucketsMap.moderate.volume += setVol;
+      bucketsMap.moderate.weightSum += weight;
+    } else {
+      bucketsMap.high.count += 1;
+      bucketsMap.high.volume += setVol;
+      bucketsMap.high.weightSum += weight;
+    }
+  }
+
+  const buckets = Object.values(bucketsMap).map(b => ({
+    ...b,
+    volume: Math.round(b.volume),
+    pct: totalSets > 0 ? Math.round((b.count / totalSets) * 100) : 0,
+    avgWeight: b.count > 0 ? Math.round(b.weightSum / b.count) : 0
+  }));
+
+  return {
+    totalSets,
+    totalVolume: Math.round(totalVolume),
+    buckets
+  };
+}
+

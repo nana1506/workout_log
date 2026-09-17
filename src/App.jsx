@@ -32,7 +32,9 @@ import {
   buildOneRmSeries,
   countSessions,
   calcVolume,
-  toLocalDateStr
+  toLocalDateStr,
+  buildVolumeRpeSeries,
+  computeRpeDistribution
 } from "./utils/calculations";
 import { MUSCLE_COLORS, PERIODS, FEATURES } from "./constants";
 
@@ -530,15 +532,57 @@ export default function WorkoutDashboard() {
         ? fmtDate(r.completed_at) 
         : `Wk ${totalWeeks - weeksAgo}`;
         
-      weeks[groupKey] = weeks[groupKey] || { name: groupKey };
-      const mg = r.muscle_group || "Other";
-      weeks[groupKey][mg] = (weeks[groupKey][mg] || 0) + (r.weight_kg || 0) * (r.reps || 0);
+      if (!weeks[groupKey]) {
+        weeks[groupKey] = { name: groupKey, week: groupKey, totalVolume: 0 };
+        Object.keys(MUSCLE_COLORS).forEach(mg => {
+          weeks[groupKey][mg] = 0;
+        });
+      }
+
+      // Map muscles with secondary contribution awareness
+      const muscles = getMusclesForExercise(r.title || r.work_id, muscleMapLookup, r.muscle_group);
+      muscles.forEach((m) => {
+        const mg = normalizeMuscleGroup(m.muscle_group);
+        const vol = Math.round((Number(r.weight_kg) || 0) * (Number(r.reps) || 0) * (m.contribution || 1.0));
+        weeks[groupKey][mg] = (weeks[groupKey][mg] || 0) + vol;
+        weeks[groupKey].totalVolume += vol;
+      });
     });
     return Object.values(weeks);
-  }, [muscleVolumeLogs, period, dateFilterMode, anchorDate]);
+  }, [muscleVolumeLogs, period, dateFilterMode, anchorDate, muscleMapLookup]);
+
+  // Ranked Tonnage per Muscle Group (for horizontal bar chart)
+  const muscleTonnageRanked = useMemo(() => {
+    const totals = {};
+    const setCounts = {};
+
+    muscleVolumeLogs.forEach((r) => {
+      const muscles = getMusclesForExercise(r.title || r.work_id, muscleMapLookup, r.muscle_group);
+      muscles.forEach((m) => {
+        const mg = normalizeMuscleGroup(m.muscle_group);
+        const vol = (Number(r.weight_kg) || 0) * (Number(r.reps) || 0) * (m.contribution || 1.0);
+        totals[mg] = (totals[mg] || 0) + vol;
+        setCounts[mg] = (setCounts[mg] || 0) + 1;
+      });
+    });
+
+    const totalAll = Object.values(totals).reduce((a, b) => a + b, 0);
+
+    return Object.keys(totals)
+      .filter(mg => totals[mg] > 0)
+      .map(mg => ({
+        muscle: mg,
+        name: mg.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
+        volume: Math.round(totals[mg]),
+        sets: setCounts[mg] || 0,
+        pct: totalAll > 0 ? Math.round((totals[mg] / totalAll) * 100) : 0,
+        color: MUSCLE_COLORS[mg] || "#8A919C"
+      }))
+      .sort((a, b) => b.volume - a.volume);
+  }, [muscleVolumeLogs, muscleMapLookup]);
 
   const muscleGroups = useMemo(() => {
-    return [...new Set(muscleVolumeLogs.map((r) => r.muscle_group || "Other"))];
+    return [...new Set(muscleVolumeLogs.map((r) => normalizeMuscleGroup(r.muscle_group || "Other")))];
   }, [muscleVolumeLogs]);
 
   const radarChartData = useMemo(() => {
@@ -565,21 +609,18 @@ export default function WorkoutDashboard() {
     ];
   }, [muscleVolumeLogs]);
 
-  // ---- RPE trend ----
-  const rpeSeries = useMemo(() => {
-    const bySession = {};
-    const logsInRange = trendBaseLogs.filter(r => new Date(r.completed_at) >= cutoff);
-    
-    logsInRange.forEach((r) => {
-      const key = toLocalDateStr(r.completed_at);
-      bySession[key] = bySession[key] || { sum: 0, n: 0, date: r.completed_at };
-      bySession[key].sum += r.rpe || 0;
-      bySession[key].n += 1;
-    });
-    return Object.values(bySession)
-      .sort((a, b) => new Date(a.date) - new Date(b.date))
-      .map((s) => ({ date: fmtDate(s.date), rpe: Math.round((s.sum / s.n) * 10) / 10 }));
+  // ---- Dual-Axis RPE & Volume Load Series ----
+  const volumeRpeSeries = useMemo(() => {
+    return buildVolumeRpeSeries(trendBaseLogs, cutoff);
   }, [trendBaseLogs, cutoff]);
+
+  // Backward compatibility alias for any legacy usage
+  const rpeSeries = volumeRpeSeries;
+
+  // ---- RPE Intensity Distribution Buckets ----
+  const rpeDistribution = useMemo(() => {
+    return computeRpeDistribution(muscleVolumeLogs);
+  }, [muscleVolumeLogs]);
 
   // ---- Sorted table logs for records table ----
   const tableLogs = useMemo(() => {
@@ -701,7 +742,7 @@ export default function WorkoutDashboard() {
   // 2. Muscle Recovery & Priorities Recommendation (using per-muscle base recovery times, secondary-aware)
   const musclePriorities = useMemo(() => {
     if (!expandedStimulus.length) {
-      return { fullyRecovered: [], recovering: [], readyToTrain: [], extendedRest: [], allMuscles: [], recommended: null };
+      return { fullyRecovered: [], recovering: [], readyToTrain: [], extendedRest: [], readyMuscles: [], recoveringMuscles: [], fatiguedMuscles: [], allMuscles: [], recommended: null };
     }
     
     const rawMuscles = [...new Set(expandedStimulus.map(s => s.stimulus_muscle).filter(Boolean))];
@@ -729,11 +770,31 @@ export default function WorkoutDashboard() {
       const hoursRemaining = Math.max(0, restHours - hoursSince);
       const recoveryPct = Math.min(100, Math.max(0, Math.round((hoursSince / restHours) * 100)));
       
-      let statusCategory = 'ready';
-      if (!isRecovered) {
-        statusCategory = 'recovering';
-      } else if (daysSince > 5) {
-        statusCategory = 'extended_rest';
+      // Standard 3-state readiness categorization:
+      // Ready: > 48 hours
+      // Recovering: 24 - 48 hours
+      // Fatigued: < 24 hours
+      let readinessStatus = "ready";
+      let readinessLabel = "Ready";
+      let readinessColor = "#4FD1C5"; // Green
+
+      if (hoursSince < 24) {
+        readinessStatus = "fatigued";
+        readinessLabel = "Fatigued";
+        readinessColor = "#EF7B57"; // Red
+      } else if (hoursSince < 48) {
+        readinessStatus = "recovering";
+        readinessLabel = "Recovering";
+        readinessColor = "#F4B740"; // Amber
+      } else {
+        readinessStatus = "ready";
+        readinessLabel = "Ready";
+        readinessColor = "#4FD1C5"; // Green
+      }
+
+      let statusCategory = readinessStatus;
+      if (isRecovered && daysSince > 5) {
+        statusCategory = "extended_rest";
       }
       
       return {
@@ -748,7 +809,10 @@ export default function WorkoutDashboard() {
         hoursRemaining,
         recoveryPct,
         restHours,
-        statusCategory
+        statusCategory,
+        readinessStatus,
+        readinessLabel,
+        readinessColor
       };
     }).filter(Boolean);
 
@@ -760,6 +824,18 @@ export default function WorkoutDashboard() {
       }
     }
     const uniqueMuscleStatus = Array.from(byMuscle.values());
+
+    const readyMuscles = uniqueMuscleStatus
+      .filter(m => m.readinessStatus === "ready")
+      .sort((a, b) => b.hoursSince - a.hoursSince);
+
+    const recoveringMuscles = uniqueMuscleStatus
+      .filter(m => m.readinessStatus === "recovering")
+      .sort((a, b) => a.hoursSince - b.hoursSince);
+
+    const fatiguedMuscles = uniqueMuscleStatus
+      .filter(m => m.readinessStatus === "fatigued")
+      .sort((a, b) => a.hoursSince - b.hoursSince);
 
     const fullyRecovered = uniqueMuscleStatus
       .filter(m => m.isRecovered)
@@ -777,6 +853,9 @@ export default function WorkoutDashboard() {
       recovering,
       readyToTrain,
       extendedRest,
+      readyMuscles,
+      recoveringMuscles,
+      fatiguedMuscles,
       allMuscles: uniqueMuscleStatus,
       recommended: readyToTrain.length > 0 ? readyToTrain[0] : (fullyRecovered.length > 0 ? fullyRecovered[0] : (recovering.length > 0 ? recovering[0] : null))
     };
@@ -1656,6 +1735,9 @@ export default function WorkoutDashboard() {
                 insightDigestLoading={insightDigestLoading}
                 annotationEvents={annotationEvents}
                 musclePriorities={musclePriorities}
+                volumeRpeSeries={volumeRpeSeries}
+                muscleTonnageRanked={muscleTonnageRanked}
+                rpeDistribution={rpeDistribution}
               />
             )}
 

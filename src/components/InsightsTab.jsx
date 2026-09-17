@@ -1,15 +1,24 @@
-import React from "react";
+import React, { useState } from "react";
 import {
-  LineChart, Line, BarChart, Bar, AreaChart, Area,
+  LineChart, Line, BarChart, Bar, AreaChart, Area, ComposedChart,
+  PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   ReferenceArea, ReferenceLine, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar
 } from "recharts";
 import {
   Flame, Trophy, Activity, CalendarCheck, Rocket, Gauge,
   Download, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle,
-  Sparkles, RefreshCw, Timer, CheckCircle2
+  Sparkles, RefreshCw, Timer, CheckCircle2, Layers, Zap, BarChart3
 } from "lucide-react";
-import { KpiCard, MetricCard, CustomTooltip, RadarTooltip, VolumeTooltip } from "./shared/SharedWidgets";
+import {
+  KpiCard,
+  MetricCard,
+  CustomTooltip,
+  RadarTooltip,
+  VolumeTooltip,
+  DualAxisTooltip,
+  RpeDistributionTooltip
+} from "./shared/SharedWidgets";
 import TrainingCalendarHeatmap from "./TrainingCalendarHeatmap";
 import { MUSCLE_COLORS } from "../constants";
 import { fmtDate, estOneRM } from "../utils/calculations";
@@ -34,6 +43,9 @@ export default function InsightsTab({
   setRadarMetric,
   volumeByMuscleGroupData,
   rpeSeries,
+  volumeRpeSeries,
+  muscleTonnageRanked = [],
+  rpeDistribution = null,
   oneRmSeries,
   selectedExercisePlateauStatus,
   visibleWeeklyStats,
@@ -55,6 +67,8 @@ export default function InsightsTab({
   annotationEvents = [],
   musclePriorities = null
 }) {
+  const [volumeViewMode, setVolumeViewMode] = useState("stacked"); // "stacked" | "ranked"
+  const [readinessFilter, setReadinessFilter] = useState("all"); // "all" | "ready" | "recovering" | "fatigued"
   const captions = insightDigest?.captions || {};
 
   return (
@@ -119,6 +133,7 @@ export default function InsightsTab({
           </p>
         )}
       </div>
+
       {/* KPI Row 1 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 relative z-0">
         <KpiCard icon={Flame} label="Total Volume" value={Math.round(totalVolume).toLocaleString()} unit="kg" delta={volumeDelta} accent="#F4B740" />
@@ -159,7 +174,7 @@ export default function InsightsTab({
           <MetricCard
             icon={Timer}
             label="Muscle Readiness"
-            value={musclePriorities ? `${(musclePriorities.readyToTrain || []).length}/${(musclePriorities.allMuscles || []).length}` : "Ready"}
+            value={musclePriorities ? `${(musclePriorities.readyMuscles || musclePriorities.readyToTrain || []).length}/${(musclePriorities.allMuscles || []).length}` : "Ready"}
             unit="ready"
             accent="#4FD1C5"
             subtitle={
@@ -170,53 +185,220 @@ export default function InsightsTab({
             subtitleColor="#4FD1C5"
           />
         </div>
+      </div>
 
-        {/* Quick Muscle Readiness Badges Preview */}
-        {musclePriorities && (musclePriorities.allMuscles || []).length > 0 && (
-          <div className="rounded-xl border border-[#232830] bg-[#15181D] p-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[10px] uppercase font-bold text-[#8A919C] tracking-wide">
-                Readiness State:
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {(musclePriorities.readyToTrain || []).slice(0, 5).map((m) => (
-                  <span
-                    key={m.muscle}
-                    className="text-[10px] px-2 py-0.5 rounded border border-[#4FD1C5]/30 bg-[#4FD1C5]/10 text-[#4FD1C5] font-mono flex items-center gap-1"
-                    title={`Last trained: ${m.latestExerciseTitle} (${m.daysSince}d ago)`}
+      {/* Task 3: Muscle Readiness Recovery Grid */}
+      <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold flex items-center gap-1.5 text-[#E7E9EC]">
+              <Timer size={16} className="text-[#4FD1C5]" />
+              Muscle Readiness &amp; Recovery Status
+            </h2>
+            <p className="text-xs text-[#8A919C] mt-0.5">
+              Elapsed rest duration classification: <span className="text-[#4FD1C5] font-medium">&gt;48h Ready</span> · <span className="text-[#F4B740] font-medium">24–48h Recovering</span> · <span className="text-[#EF7B57] font-medium">&lt;24h Fatigued</span>
+            </p>
+          </div>
+
+          {/* Filter Pills */}
+          <div className="flex bg-[#0C0E12] rounded-lg p-0.5 border border-[#232830] text-[10px] uppercase font-semibold tracking-wider">
+            <button
+              onClick={() => setReadinessFilter("all")}
+              className={`px-2.5 py-1 rounded-md transition-all ${
+                readinessFilter === "all" ? "bg-[#1B1F26] text-[#E7E9EC]" : "text-[#8A919C] hover:text-[#E7E9EC]"
+              }`}
+            >
+              All ({(musclePriorities?.allMuscles || []).length})
+            </button>
+            <button
+              onClick={() => setReadinessFilter("ready")}
+              className={`px-2.5 py-1 rounded-md transition-all flex items-center gap-1 ${
+                readinessFilter === "ready" ? "bg-[#1B1F26] text-[#4FD1C5]" : "text-[#8A919C] hover:text-[#E7E9EC]"
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-[#4FD1C5]" />
+              Ready ({(musclePriorities?.readyMuscles || []).length})
+            </button>
+            <button
+              onClick={() => setReadinessFilter("recovering")}
+              className={`px-2.5 py-1 rounded-md transition-all flex items-center gap-1 ${
+                readinessFilter === "recovering" ? "bg-[#1B1F26] text-[#F4B740]" : "text-[#8A919C] hover:text-[#E7E9EC]"
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-[#F4B740]" />
+              Recovering ({(musclePriorities?.recoveringMuscles || []).length})
+            </button>
+            <button
+              onClick={() => setReadinessFilter("fatigued")}
+              className={`px-2.5 py-1 rounded-md transition-all flex items-center gap-1 ${
+                readinessFilter === "fatigued" ? "bg-[#1B1F26] text-[#EF7B57]" : "text-[#8A919C] hover:text-[#E7E9EC]"
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-[#EF7B57]" />
+              Fatigued ({(musclePriorities?.fatiguedMuscles || []).length})
+            </button>
+          </div>
+        </div>
+
+        {/* Grid Layout of Muscle Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5">
+          {(() => {
+            const all = musclePriorities?.allMuscles || [];
+            let list = all;
+            if (readinessFilter === "ready") list = musclePriorities?.readyMuscles || [];
+            else if (readinessFilter === "recovering") list = musclePriorities?.recoveringMuscles || [];
+            else if (readinessFilter === "fatigued") list = musclePriorities?.fatiguedMuscles || [];
+
+            if (!list.length) {
+              return (
+                <div className="col-span-full py-6 text-center text-xs text-[#8A919C] italic">
+                  No muscle groups found in this readiness category.
+                </div>
+              );
+            }
+
+            return list.map((m) => {
+              const isReady = m.readinessStatus === "ready";
+              const isRecovering = m.readinessStatus === "recovering";
+              const isFatigued = m.readinessStatus === "fatigued";
+              const color = MUSCLE_COLORS[m.muscle] || "#8A919C";
+
+              // Badge styling
+              let badgeBg = "bg-[#4FD1C5]/10 text-[#4FD1C5] border-[#4FD1C5]/30";
+              let badgeText = "READY";
+              let restText = m.daysSince >= 1 ? `${m.daysSince}d rested` : `${Math.round(m.hoursSince)}h rested`;
+              let barColor = "bg-[#4FD1C5]";
+
+              if (isFatigued) {
+                badgeBg = "bg-[#EF7B57]/10 text-[#EF7B57] border-[#EF7B57]/30";
+                badgeText = "FATIGUED";
+                restText = `${Math.round(m.hoursSince)}h elapsed`;
+                barColor = "bg-[#EF7B57]";
+              } else if (isRecovering) {
+                badgeBg = "bg-[#F4B740]/10 text-[#F4B740] border-[#F4B740]/30";
+                badgeText = "RECOVERING";
+                restText = `${Math.round(m.hoursRemaining)}h left`;
+                barColor = "bg-[#F4B740]";
+              }
+
+              return (
+                <div
+                  key={m.muscle}
+                  className="p-3 rounded-xl bg-[#0C0E12]/60 border border-[#1E222A] hover:border-[#2A313C] transition-all space-y-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                      <span className="capitalize font-semibold text-xs text-[#E7E9EC]">
+                        {m.muscle.replace(/_/g, " ")}
+                      </span>
+                    </div>
+                    <span className={`px-1.5 py-0.5 rounded text-[8px] font-semibold font-mono border ${badgeBg}`}>
+                      {badgeText}
+                    </span>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="space-y-1">
+                    <div className="w-full h-1.5 bg-[#15181D] rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-300 ${barColor}`}
+                        style={{ width: `${Math.min(100, Math.max(5, m.recoveryPct || (isReady ? 100 : (m.hoursSince / 48) * 100)))}%` }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-[#8A919C]">
+                      <span>{restText}</span>
+                      <span className="font-mono text-[9px]">{m.recoveryPct}% recovery</span>
+                    </div>
+                  </div>
+
+                  <div className="text-[10px] text-[#8A919C] pt-1 border-t border-[#1E222A] flex items-center justify-between truncate">
+                    <span className="truncate max-w-[140px]" title={m.latestExerciseTitle}>
+                      Last: <strong className="text-[#E7E9EC] font-normal">{m.latestExerciseTitle}</strong>
+                    </span>
+                    <span className="font-mono text-[9px] shrink-0">{fmtDate(m.lastTrainedDate || m.lastTrained)}</span>
+                  </div>
+                </div>
+              );
+            });
+          })()}
+        </div>
+      </div>
+
+      {/* Task 4: Intensity Distribution (RPE Buckets) */}
+      {rpeDistribution && rpeDistribution.totalSets > 0 && (
+        <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0">
+          <div className="flex flex-col md:grid md:grid-cols-12 gap-6 items-center">
+            {/* Left: Donut Chart */}
+            <div className="w-full md:col-span-5 flex flex-col items-center">
+              <div className="w-full h-[200px] relative flex items-center justify-center">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={rpeDistribution.buckets}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={52}
+                      outerRadius={78}
+                      paddingAngle={4}
+                      dataKey="count"
+                    >
+                      {rpeDistribution.buckets.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} stroke="#15181D" strokeWidth={2} />
+                      ))}
+                    </Pie>
+                    <Tooltip content={<RpeDistributionTooltip />} />
+                  </PieChart>
+                </ResponsiveContainer>
+                {/* Centered Total Summary */}
+                <div className="absolute flex flex-col items-center justify-center pointer-events-none">
+                  <span className="text-xl font-bold font-mono text-[#E7E9EC]">{rpeDistribution.totalSets}</span>
+                  <span className="text-[9px] uppercase tracking-wider text-[#8A919C]">Total Sets</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Buckets Breakdown */}
+            <div className="w-full md:col-span-7 space-y-3">
+              <div>
+                <h3 className="text-sm font-semibold tracking-tight text-[#E7E9EC] flex items-center gap-1.5">
+                  <Zap size={16} className="text-[#F4B740]" />
+                  Intensity Distribution (RPE Buckets)
+                </h3>
+                <p className="text-[11px] text-[#8A919C] mt-0.5 leading-relaxed">
+                  Distribution of working sets across exertion zones: Warmup (&lt;7.0), Hypertrophy (7.0–8.5), and High Strain (&gt;8.5).
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                {rpeDistribution.buckets.map((b) => (
+                  <div
+                    key={b.key}
+                    className="p-3 rounded-lg bg-[#0C0E12]/50 border border-[#1E222A] space-y-1.5"
                   >
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#4FD1C5]" />
-                    <span className="capitalize font-sans font-medium">{m.muscle.replace(/_/g, " ")}</span>
-                    <span className="text-[9px] opacity-75">{m.daysSince}d</span>
-                  </span>
-                ))}
-                {(musclePriorities.recovering || []).slice(0, 4).map((m) => (
-                  <span
-                    key={m.muscle}
-                    className="text-[10px] px-2 py-0.5 rounded border border-[#F4B740]/30 bg-[#F4B740]/10 text-[#F4B740] font-mono flex items-center gap-1"
-                    title={`Recovering from ${m.latestExerciseTitle}. ${m.hoursRemaining.toFixed(0)}h left`}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#F4B740]" />
-                    <span className="capitalize font-sans font-medium">{m.muscle.replace(/_/g, " ")}</span>
-                    <span className="text-[9px] opacity-75">{m.hoursRemaining.toFixed(0)}h</span>
-                  </span>
-                ))}
-                {(musclePriorities.extendedRest || []).slice(0, 4).map((m) => (
-                  <span
-                    key={m.muscle}
-                    className="text-[10px] px-2 py-0.5 rounded border border-purple-500/30 bg-purple-500/10 text-purple-300 font-mono flex items-center gap-1"
-                    title={`Extended rest: ${m.daysSince}d since last trained (${m.latestExerciseTitle})`}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />
-                    <span className="capitalize font-sans font-medium">{m.muscle.replace(/_/g, " ")}</span>
-                    <span className="text-[9px] opacity-75">{m.daysSince}d</span>
-                  </span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-semibold text-[#8A919C] uppercase">{b.name}</span>
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: b.color }} />
+                    </div>
+                    <div className="flex items-baseline justify-between">
+                      <span className="font-mono text-[#E7E9EC] text-base font-bold">
+                        {b.count} <span className="text-[9px] text-[#8A919C] font-normal font-sans">sets</span>
+                      </span>
+                      <span className="font-mono text-xs font-semibold" style={{ color: b.color }}>
+                        {b.pct}%
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[9px] text-[#8A919C] pt-1 border-t border-[#1E222A]">
+                      <span>{b.range}</span>
+                      <span className="font-mono text-[#4FD1C5]">{Math.round(b.volume / 1000)}k kg</span>
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Muscle Split Balance Radar Chart Card */}
       <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0">
@@ -290,79 +472,213 @@ export default function InsightsTab({
         </div>
       </div>
 
-      {/* Volume & RPE Trend Grid */}
+      {/* Task 1 & Task 2: Volume & Dual-Axis Fatigue Trend Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-0">
-        {/* Volume by muscle group */}
-        <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5">
-          <h2 className="text-sm font-semibold mb-1">Volume by Muscle Group</h2>
-          <p className="text-xs text-[#8A919C] mb-4">Weekly kg lifted across categories</p>
-          <div className="w-full h-[200px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={volumeByMuscleGroupData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid stroke="#1E222A" vertical={false} />
-                <XAxis dataKey="week" tick={{ fill: "#8A919C", fontSize: 10 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
-                <YAxis tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} />
-                <Tooltip content={<VolumeTooltip annotationEvents={annotationEvents} captions={captions} />} />
-                {Object.keys(MUSCLE_COLORS).map((mg) => {
-                  const isNeglected = annotationEvents.some(
-                    (e) => e.type === "neglected-muscle" && (e.id === `neglected-${mg}` || e.muscle === mg)
-                  );
-                  return (
-                    <Bar
-                      key={mg}
-                      dataKey={mg}
-                      stackId="vol"
-                      fill={MUSCLE_COLORS[mg] || "#8A919C"}
-                      fillOpacity={isNeglected ? 0.6 : 1}
-                      stroke={isNeglected ? "#EF7B57" : "none"}
-                      strokeWidth={isNeglected ? 1.5 : 0}
-                      radius={[2, 2, 0, 0]}
-                    />
-                  );
-                })}
-              </BarChart>
-            </ResponsiveContainer>
+        {/* Task 1: Volume by Muscle Group */}
+        <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 flex flex-col justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <div>
+              <h2 className="text-sm font-semibold flex items-center gap-1.5 text-[#E7E9EC]">
+                <Layers size={15} className="text-[#F4B740]" />
+                Volume by Muscle Group
+              </h2>
+              <p className="text-xs text-[#8A919C] mt-0.5">
+                {volumeViewMode === "stacked" ? "Weekly tonnage breakdown across muscle groups" : "Ranked total tonnage by muscle category"}
+              </p>
+            </div>
+            <div className="flex bg-[#0C0E12] rounded-lg p-0.5 border border-[#232830] text-[10px] uppercase font-semibold tracking-wider">
+              <button
+                onClick={() => setVolumeViewMode("stacked")}
+                className={`px-2.5 py-1 rounded-md transition-all ${
+                  volumeViewMode === "stacked" ? "bg-[#1B1F26] text-[#F4B740]" : "text-[#8A919C] hover:text-[#E7E9EC]"
+                }`}
+              >
+                Weekly Stacked
+              </button>
+              <button
+                onClick={() => setVolumeViewMode("ranked")}
+                className={`px-2.5 py-1 rounded-md transition-all ${
+                  volumeViewMode === "ranked" ? "bg-[#1B1F26] text-[#4FD1C5]" : "text-[#8A919C] hover:text-[#E7E9EC]"
+                }`}
+              >
+                Ranked
+              </button>
+            </div>
+          </div>
+
+          <div className="w-full h-[240px] min-h-[240px]">
+            {volumeViewMode === "stacked" ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={volumeByMuscleGroupData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+                  <CartesianGrid stroke="#1E222A" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fill: "#8A919C", fontSize: 10 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
+                  <YAxis
+                    tick={{ fill: "#8A919C", fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : v)}
+                  />
+                  <Tooltip content={<VolumeTooltip annotationEvents={annotationEvents} captions={captions} />} />
+                  {Object.keys(MUSCLE_COLORS).map((mg) => {
+                    const isNeglected = annotationEvents.some(
+                      (e) => e.type === "neglected-muscle" && (e.id === `neglected-${mg}` || e.muscle === mg)
+                    );
+                    return (
+                      <Bar
+                        key={mg}
+                        dataKey={mg}
+                        stackId="vol"
+                        fill={MUSCLE_COLORS[mg] || "#8A919C"}
+                        fillOpacity={isNeglected ? 0.6 : 1}
+                        stroke={isNeglected ? "#EF7B57" : "none"}
+                        strokeWidth={isNeglected ? 1.5 : 0}
+                        radius={[2, 2, 0, 0]}
+                      />
+                    );
+                  })}
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart layout="vertical" data={muscleTonnageRanked} margin={{ top: 5, right: 20, left: 10, bottom: 0 }}>
+                  <CartesianGrid stroke="#1E222A" horizontal={false} />
+                  <XAxis
+                    type="number"
+                    tick={{ fill: "#8A919C", fontSize: 10 }}
+                    axisLine={{ stroke: "#232830" }}
+                    tickLine={false}
+                    tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : v)}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    tick={{ fill: "#E7E9EC", fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={75}
+                  />
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload || !payload.length) return null;
+                      const d = payload[0].payload;
+                      return (
+                        <div className="rounded-lg border border-[#2A2F38] bg-[#1B1F26] p-2.5 text-xs shadow-lg space-y-1">
+                          <div className="font-semibold text-[#E7E9EC] capitalize flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: d.color }} />
+                            {d.name}
+                          </div>
+                          <div className="text-[#8A919C] flex justify-between gap-4">
+                            <span>Total Volume:</span>
+                            <span className="font-mono text-[#F4B740] font-bold">{Number(d.volume).toLocaleString()} kg</span>
+                          </div>
+                          <div className="text-[#8A919C] flex justify-between gap-4">
+                            <span>Share / Sets:</span>
+                            <span className="font-mono text-[#4FD1C5]">{d.pct}% ({d.sets} sets)</span>
+                          </div>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Bar dataKey="volume" radius={[0, 4, 4, 0]}>
+                    {muscleTonnageRanked.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color || "#F4B740"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
 
-        {/* Fatigue — RPE Trend */}
-        <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5">
-          <h2 className="text-sm font-semibold mb-1">Fatigue — RPE Trend</h2>
-          <p className="text-xs text-[#8A919C] mb-4">
-            Avg RPE per session for {selectedExerciseId === "all" ? "Overall Workouts" : activeExercise.title}
-          </p>
-          <div className="w-full h-[200px]">
+        {/* Task 2: Fatigue & Volume Load — Dual-Axis Trend */}
+        <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 flex flex-col justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <div>
+              <h2 className="text-sm font-semibold flex items-center gap-1.5 text-[#E7E9EC]">
+                <Activity size={15} className="text-[#7FA6FF]" />
+                Fatigue &amp; Load — Dual-Axis Trend
+              </h2>
+              <p className="text-xs text-[#8A919C] mt-0.5">
+                Volume load (bars, left) vs Avg RPE strain (line, right) per session
+              </p>
+            </div>
+            <div className="flex items-center gap-3 text-[10px] text-[#8A919C]">
+              <div className="flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded-sm bg-[#2A3441] border border-[#3D4B5C]" />
+                <span>Volume</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="w-2.5 h-0.5 bg-[#7FA6FF]" />
+                <span>RPE</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="w-full h-[240px] min-h-[240px]">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={rpeSeries} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="rpeFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#7FA6FF" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="#7FA6FF" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
+              <ComposedChart data={volumeRpeSeries || rpeSeries} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
                 <CartesianGrid stroke="#1E222A" vertical={false} />
                 <XAxis dataKey="date" tick={{ fill: "#8A919C", fontSize: 10 }} axisLine={{ stroke: "#232830" }} tickLine={false} />
-                <YAxis domain={[4, 10]} tick={{ fill: "#8A919C", fontSize: 11 }} axisLine={false} tickLine={false} />
-                <ReferenceLine y={9} stroke="#EF7B57" strokeDasharray="3 3" strokeOpacity={0.5} />
-                <Tooltip content={<CustomTooltip suffix=" RPE" />} />
-                <Area type="monotone" dataKey="rpe" name="RPE" stroke="#7FA6FF" strokeWidth={2} fill="url(#rpeFill)" />
+                {/* Left Axis: Volume in kg */}
+                <YAxis
+                  yAxisId="left"
+                  orientation="left"
+                  domain={[0, 'auto']}
+                  tick={{ fill: "#8A919C", fontSize: 10 }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : v)}
+                />
+                {/* Right Axis: RPE (1-10) */}
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  domain={[1, 10]}
+                  ticks={[2, 4, 6, 8, 10]}
+                  tick={{ fill: "#7FA6FF", fontSize: 10 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <ReferenceLine yAxisId="right" y={9} stroke="#EF7B57" strokeDasharray="3 3" strokeOpacity={0.6} />
+                <Tooltip content={<DualAxisTooltip />} />
+                {/* Volume Bars */}
+                <Bar
+                  yAxisId="left"
+                  dataKey="volume"
+                  name="Volume Load"
+                  fill="#2A3441"
+                  stroke="#3D4B5C"
+                  radius={[3, 3, 0, 0]}
+                />
+                {/* RPE Line */}
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="rpe"
+                  name="Avg RPE"
+                  stroke="#7FA6FF"
+                  strokeWidth={2.5}
+                  dot={{ r: 3, fill: "#7FA6FF" }}
+                  activeDot={{ r: 5 }}
+                />
                 {annotationEvents
                   .filter((e) => e.type === "rpe-spike")
                   .map((e) => (
                     <ReferenceLine
                       key={e.id}
+                      yAxisId="right"
                       x={e.date}
-                      stroke="#7FA6FF"
+                      stroke="#EF7B57"
                       strokeDasharray="2 2"
                       label={{
                         value: captions[e.id] || "Spike",
-                        fill: "#7FA6FF",
+                        fill: "#EF7B57",
                         fontSize: 9,
                         position: "top",
                       }}
                     />
                   ))}
-              </AreaChart>
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         </div>
@@ -480,7 +796,7 @@ export default function InsightsTab({
         </div>
       </div>
 
-      {/* Live Log Records Table (Sortable headers added) */}
+      {/* Live Log Records Table (Sortable headers) */}
       <div className="rounded-xl border border-[#232830] bg-[#15181D] p-4 md:p-5 relative z-0">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
           <h2 className="text-sm font-semibold">Live Log Records</h2>
