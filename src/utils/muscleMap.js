@@ -206,31 +206,79 @@ export function buildMuscleMapLookup(rows) {
  * 4. Fallback primary muscle group from log row
  */
 export function getMusclesForExercise(title, lookup, fallbackPrimary) {
+  let mapped = [];
+  let fromLookup = false;
+  const normPrimary = normalizeMuscleGroup(fallbackPrimary);
+
   if (title) {
-    // 1. Custom DB lookup
-    if (lookup && lookup.has(title)) {
-      return lookup.get(title);
-    }
+    const rawKey = title;
     const normKey = normalizeExerciseKey(title);
-    if (lookup && normKey && lookup.has(normKey)) {
-      return lookup.get(normKey);
-    }
 
-    // 2. Built-in defaults
-    if (DEFAULT_EXERCISE_MUSCLE_MAP.has(normKey)) {
-      return DEFAULT_EXERCISE_MUSCLE_MAP.get(normKey);
-    }
-
-    // 3. Keyword heuristics
-    const heuristic = matchHeuristicMuscles(title);
-    if (heuristic) {
-      return heuristic;
+    if (lookup && lookup.has(rawKey) && lookup.get(rawKey).length > 0) {
+      mapped = [...lookup.get(rawKey)];
+      fromLookup = true;
+    } else if (lookup && normKey && lookup.has(normKey) && lookup.get(normKey).length > 0) {
+      mapped = [...lookup.get(normKey)];
+      fromLookup = true;
+    } else if (DEFAULT_EXERCISE_MUSCLE_MAP.has(normKey)) {
+      mapped = [...DEFAULT_EXERCISE_MUSCLE_MAP.get(normKey)];
+    } else {
+      const heuristic = matchHeuristicMuscles(title);
+      if (heuristic) {
+        mapped = [...heuristic];
+      }
     }
   }
 
-  // 4. Fallback from log row
-  const fallbackMuscle = normalizeMuscleGroup(fallbackPrimary || 'general');
-  return [{ muscle_group: fallbackMuscle, role: 'primary', contribution: 1.0 }];
+  // Ensure normalized muscle group and safe defaults on each entry
+  mapped = mapped.map(entry => ({
+    ...entry,
+    muscle_group: normalizeMuscleGroup(entry.muscle_group),
+    role: entry.role || 'secondary',
+    contribution: entry.contribution != null ? Number(entry.contribution) : 1.0
+  }));
+
+  const hasPrimary = mapped.some(m => m.role === 'primary');
+
+  // If lookup only contains secondary muscles (or mapped has no primary),
+  // supplement with the log row's explicit primary muscle group!
+  if (!hasPrimary && normPrimary && normPrimary !== 'general') {
+    mapped.unshift({
+      muscle_group: normPrimary,
+      role: 'primary',
+      contribution: 1.0
+    });
+  }
+
+  // If still empty, fallback completely to primary from log row
+  if (mapped.length === 0) {
+    return [{ muscle_group: normPrimary || 'general', role: 'primary', contribution: 1.0 }];
+  }
+
+  // Ensure at least one primary entry exists
+  if (!mapped.some(m => m.role === 'primary')) {
+    mapped[0] = { ...mapped[0], role: 'primary' };
+  }
+
+  // Deduplicate by muscle_group (preserving primary role and highest contribution)
+  const deduped = new Map();
+  for (const item of mapped) {
+    const mg = item.muscle_group;
+    if (!deduped.has(mg)) {
+      deduped.set(mg, item);
+    } else {
+      const existing = deduped.get(mg);
+      const isPrimary = existing.role === 'primary' || item.role === 'primary';
+      const maxContribution = Math.max(existing.contribution || 0, item.contribution || 0);
+      deduped.set(mg, {
+        muscle_group: mg,
+        role: isPrimary ? 'primary' : 'secondary',
+        contribution: maxContribution
+      });
+    }
+  }
+
+  return Array.from(deduped.values());
 }
 
 /**

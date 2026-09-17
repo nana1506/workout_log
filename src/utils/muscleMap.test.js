@@ -68,6 +68,24 @@ describe("muscleMap utility tests", () => {
       expect(muscles[1].muscle_group).toBe("triceps");
     });
 
+    it("should preserve explicitly logged muscle_group as primary even if lookup only has secondary muscles", () => {
+      const lookup = new Map([
+        ["Shrug (Dumbbell)", [
+          { muscle_group: "shoulders", role: "secondary", contribution: 0.3 }
+        ]]
+      ]);
+      const muscles = getMusclesForExercise("Shrug (Dumbbell)", lookup, "traps");
+      expect(muscles).toHaveLength(2);
+      const traps = muscles.find(m => m.muscle_group === "traps");
+      const shoulders = muscles.find(m => m.muscle_group === "shoulders");
+      expect(traps).toBeDefined();
+      expect(traps.role).toBe("primary");
+      expect(traps.contribution).toBe(1.0);
+      expect(shoulders).toBeDefined();
+      expect(shoulders.role).toBe("secondary");
+      expect(shoulders.contribution).toBe(0.3);
+    });
+
     it("should fallback to normalized fallback muscle if exercise is completely unknown and no heuristic matches", () => {
       const lookup = new Map();
       const muscles = getMusclesForExercise("Unknown Movement 123", lookup, "Traps");
