@@ -11,13 +11,21 @@ import {
   ExternalLink,
   Layers,
   Sparkles,
-  Database
+  Database,
+  Lock,
+  Eye,
+  EyeOff,
+  ShieldCheck
 } from "lucide-react";
 import { extractWorkoutId, flattenHevyWorkout } from "../utils/hevySync";
 import { supabase } from "../App";
 
+const DEFAULT_PIN = "476267";
+
 export default function LogWorkoutModal({ isOpen, onClose, onWorkoutLogged }) {
   const [workoutInput, setWorkoutInput] = useState("");
+  const [pin, setPin] = useState("");
+  const [showPin, setShowPin] = useState(false);
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState("idle"); // 'idle' | 'fetching' | 'parsing' | 'inserting' | 'success' | 'error'
   const [errorMsg, setErrorMsg] = useState("");
@@ -28,6 +36,7 @@ export default function LogWorkoutModal({ isOpen, onClose, onWorkoutLogged }) {
       setStep("idle");
       setErrorMsg("");
       setResultData(null);
+      setPin("");
     }
   }, [isOpen]);
 
@@ -58,9 +67,15 @@ export default function LogWorkoutModal({ isOpen, onClose, onWorkoutLogged }) {
   const handleLogWorkout = async (e) => {
     e?.preventDefault();
     const cleanId = extractWorkoutId(workoutInput);
+    const enteredPin = pin.trim();
 
     if (!cleanId) {
       setErrorMsg("Please enter a valid Hevy Workout ID or workout URL.");
+      return;
+    }
+
+    if (!enteredPin) {
+      setErrorMsg("Please enter your security PIN to log this workout.");
       return;
     }
 
@@ -76,8 +91,12 @@ export default function LogWorkoutModal({ isOpen, onClose, onWorkoutLogged }) {
       try {
         const res = await fetch("/api/log-workout", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ workoutId: cleanId }),
+          headers: {
+            "Content-Type": "application/json",
+            "X-Workout-Pin": enteredPin,
+            "X-Pin": enteredPin,
+          },
+          body: JSON.stringify({ workoutId: cleanId, pin: enteredPin }),
         });
 
         if (res.ok) {
@@ -86,21 +105,27 @@ export default function LogWorkoutModal({ isOpen, onClose, onWorkoutLogged }) {
         } else {
           const errJson = await res.json().catch(() => null);
           const message = errJson?.error || `API returned status ${res.status}`;
-          // If it was a 404 from Hevy or DB failure, surface it
+          if (res.status === 401) {
+            throw new Error("Invalid security PIN. Access denied.");
+          }
           if (res.status === 404 || res.status === 400 || res.status === 500) {
             throw new Error(message);
           }
         }
       } catch (apiErr) {
-        // If the serverless route returned a known validation/not-found error, propagate it
         if (apiErr.message && !apiErr.message.includes("Failed to fetch") && !apiErr.message.includes("404")) {
           throw apiErr;
         }
         console.warn("Direct API route unavailable or failed, falling back to client-assisted flow:", apiErr);
       }
 
-      // Step 2 (Fallback if API endpoint couldn't process): Direct client-side insertion if payload wasn't obtained
+      // Step 2 (Fallback if API endpoint couldn't process): Client-assisted flow with client PIN verification
       if (!apiSucceeded || !responsePayload) {
+        const validPin = import.meta.env.VITE_WORKOUT_LOG_PIN || DEFAULT_PIN;
+        if (enteredPin !== validPin) {
+          throw new Error("Invalid security PIN. Access denied.");
+        }
+
         setStep("fetching");
         const hevyRes = await fetch(`https://api.hevyapp.com/workout/${encodeURIComponent(cleanId)}`, {
           headers: {
@@ -163,6 +188,7 @@ export default function LogWorkoutModal({ isOpen, onClose, onWorkoutLogged }) {
 
   const resetForm = () => {
     setWorkoutInput("");
+    setPin("");
     setStep("idle");
     setErrorMsg("");
     setResultData(null);
@@ -185,9 +211,14 @@ export default function LogWorkoutModal({ isOpen, onClose, onWorkoutLogged }) {
               <Dumbbell size={18} color="#F4B740" />
             </div>
             <div>
-              <h2 className="text-base font-semibold tracking-tight" style={{ fontFamily: "'Oswald', sans-serif" }}>
-                LOG WORKOUT FROM HEVY
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-semibold tracking-tight" style={{ fontFamily: "'Oswald', sans-serif" }}>
+                  LOG WORKOUT FROM HEVY
+                </h2>
+                <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-[#F4B740]/10 border border-[#F4B740]/25 text-[#F4B740] font-medium">
+                  <ShieldCheck size={11} /> PIN Protected
+                </span>
+              </div>
               <p className="text-xs text-[#8A919C]">
                 Import session and sync sets into Supabase <code className="text-[#F4B740] font-mono">workout_log</code>
               </p>
@@ -333,12 +364,46 @@ export default function LogWorkoutModal({ isOpen, onClose, onWorkoutLogged }) {
                 </p>
               </div>
 
+              {/* PIN Code Input */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-[#E7E9EC] flex items-center gap-1.5">
+                    <Lock size={12} className="text-[#F4B740]" />
+                    <span>Security PIN</span>
+                    <span className="text-red-400">*</span>
+                  </label>
+                  <span className="text-[10px] text-[#8A919C]">
+                    Default PIN: <strong className="text-[#E7E9EC] font-mono">476267</strong>
+                  </span>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type={showPin ? "text" : "password"}
+                    value={pin}
+                    onChange={(e) => setPin(e.target.value)}
+                    placeholder="Enter 6-digit PIN"
+                    maxLength={10}
+                    disabled={loading}
+                    autoComplete="off"
+                    className="w-full bg-[#1B1F26] border border-[#232830] focus:border-[#F4B740] focus:ring-1 focus:ring-[#F4B740] rounded-xl px-3.5 py-2.5 text-xs text-[#E7E9EC] placeholder-[#555C68] outline-none font-mono tracking-widest transition-all pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPin(!showPin)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A919C] hover:text-[#E7E9EC] transition-colors"
+                  >
+                    {showPin ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </div>
+
               {/* Progress Stepper (Visible during loading) */}
               {loading && (
                 <div className="p-3.5 rounded-xl border border-[#232830] bg-[#1B1F26] space-y-2.5 animate-fade-in">
                   <div className="flex items-center gap-2 text-xs font-medium text-[#F4B740]">
                     <RefreshCw size={14} className="animate-spin" />
-                    <span>Processing workout data...</span>
+                    <span>Verifying PIN &amp; processing workout data...</span>
                   </div>
                   <div className="space-y-1.5 text-[11px]">
                     <div className="flex items-center gap-2">
@@ -383,7 +448,7 @@ export default function LogWorkoutModal({ isOpen, onClose, onWorkoutLogged }) {
                 </button>
                 <button
                   type="submit"
-                  disabled={loading || !workoutInput.trim()}
+                  disabled={loading || !workoutInput.trim() || !pin.trim()}
                   className="flex-1 py-2.5 px-4 rounded-xl bg-[#F4B740] hover:bg-[#F4B740]/90 disabled:bg-[#F4B740]/40 text-[#0C0E12] disabled:text-[#0C0E12]/50 text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#F4B740]/10 disabled:cursor-not-allowed"
                 >
                   {loading ? (
@@ -394,7 +459,7 @@ export default function LogWorkoutModal({ isOpen, onClose, onWorkoutLogged }) {
                   ) : (
                     <>
                       <PlusCircle size={15} />
-                      Log Workout
+                      Verify &amp; Log Workout
                     </>
                   )}
                 </button>

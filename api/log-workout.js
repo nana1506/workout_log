@@ -1,15 +1,34 @@
 // api/log-workout.js
 // Vercel serverless function — fetches workout details from Hevy API and inserts flattened rows into Supabase workout_log.
-// Endpoint: POST /api/log-workout or GET /api/log-workout?workoutId=...
+// Endpoint: POST /api/log-workout or GET /api/log-workout?workoutId=...&pin=...
 
 import { createClient } from "@supabase/supabase-js";
 import { extractWorkoutId, flattenHevyWorkout } from "../src/utils/hevySync.js";
+
+const DEFAULT_PIN = "476267";
 
 export default async function handler(req, res) {
   if (req.method !== "POST" && req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed. Use POST or GET." });
   }
 
+  // 1. PIN Security Verification
+  const expectedPin = process.env.WORKOUT_LOG_PIN || DEFAULT_PIN;
+  const providedPin = String(
+    req.body?.pin ||
+    req.query?.pin ||
+    req.headers["x-workout-pin"] ||
+    req.headers["x-pin"] ||
+    ""
+  ).trim();
+
+  if (!providedPin || providedPin !== expectedPin) {
+    return res.status(401).json({
+      error: "Unauthorized: Invalid or missing security PIN. Workout was not logged."
+    });
+  }
+
+  // 2. Validate Workout ID
   const rawWorkoutId = req.body?.workoutId || req.body?.workout_id || req.query?.workoutId || req.query?.workout_id;
   const workoutId = extractWorkoutId(rawWorkoutId);
 
