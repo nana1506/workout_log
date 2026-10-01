@@ -372,9 +372,6 @@ export default function LogWorkoutModal({ isOpen, onClose, onWorkoutLogged }) {
                     <span>Security PIN</span>
                     <span className="text-red-400">*</span>
                   </label>
-                  <span className="text-[10px] text-[#8A919C]">
-                    Default PIN: <strong className="text-[#E7E9EC] font-mono">476267</strong>
-                  </span>
                 </div>
 
                 <div className="relative">
@@ -382,7 +379,7 @@ export default function LogWorkoutModal({ isOpen, onClose, onWorkoutLogged }) {
                     type={showPin ? "text" : "password"}
                     value={pin}
                     onChange={(e) => setPin(e.target.value)}
-                    placeholder="Enter 6-digit PIN"
+                    placeholder="Enter PIN"
                     maxLength={10}
                     disabled={loading}
                     autoComplete="off"
