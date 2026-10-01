@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import {
-  Dumbbell, Trophy, Database, X, Scale, Brain,
+  Dumbbell, Trophy, Database, X, Scale, Brain, Plus,
   RefreshCw, ChevronDown, CalendarCheck, Download, Newspaper
 } from "lucide-react";
 
@@ -15,6 +15,7 @@ import InsightsTab from "./components/InsightsTab";
 import DecisionTab from "./components/DecisionTab";
 import ProgramTab from "./components/ProgramTab";
 import ReportsTab from "./components/ReportsTab";
+import LogWorkoutModal from "./components/LogWorkoutModal";
 import { buildDailyFatigueMap } from "./utils/dailyFatigue";
 import {
   buildMuscleMapLookup,
@@ -158,6 +159,7 @@ export default function WorkoutDashboard() {
   const [periodIdx, setPeriodIdx] = useState(0); // Default to '7D'
   const [selectedExerciseId, setSelectedExerciseId] = useState("all");
   const [showSetup, setShowSetup] = useState(false);
+  const [showLogModal, setShowLogModal] = useState(false);
   const [exOpen, setExOpen] = useState(false);
   const [dateDropdownOpen, setDateDropdownOpen] = useState(false);
   const [exerciseDropdownOpen, setExerciseDropdownOpen] = useState(false);
@@ -1609,6 +1611,13 @@ export default function WorkoutDashboard() {
             </div>
 
             <button
+              onClick={() => setShowLogModal(true)}
+              className="flex items-center gap-1.5 text-xs font-semibold bg-[#F4B740] hover:bg-[#F4B740]/90 text-[#0C0E12] rounded-lg px-3 py-2 transition-all shadow-md shadow-[#F4B740]/10"
+              title="Log workout from Hevy API"
+            >
+              <Plus size={14} strokeWidth={2.5} /> Log Workout
+            </button>
+            <button
               onClick={loadData}
               className="flex items-center gap-1.5 text-xs text-[#8A919C] border border-[#232830] hover:border-[#3A414C] bg-[#15181D] rounded-lg px-3 py-2 transition-colors"
             >
@@ -1804,6 +1813,15 @@ export default function WorkoutDashboard() {
           </div>
         </div>
       )}
+
+      {/* Log Workout Modal */}
+      <LogWorkoutModal
+        isOpen={showLogModal}
+        onClose={() => setShowLogModal(false)}
+        onWorkoutLogged={() => {
+          loadData();
+        }}
+      />
     </div>
   );
 }
